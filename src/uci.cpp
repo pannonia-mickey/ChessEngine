@@ -83,6 +83,18 @@ Move uci_to_move(Position& pos, const std::string& s) {
     return MOVE_NONE;
 }
 
+std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<std::string>& moves) {
+    std::vector<zobrist::Key> history{pos.key()};
+    for (const std::string& s : moves) {
+        Move m = uci_to_move(pos, s);
+        if (m == MOVE_NONE) break;
+        StateInfo st;
+        pos.do_move(m, st);
+        history.push_back(pos.key());
+    }
+    return history;
+}
+
 std::string format_score(int score) {
     if (score >= MATE - MAX_DEPTH) {
         int moves = (MATE - score + 1) / 2;
@@ -112,6 +124,7 @@ long long compute_move_time(Color us, long long wtime, long long btime,
 void uci_loop() {
     Position pos;
     pos.set(kStartFen);
+    std::vector<zobrist::Key> game_history{pos.key()};
 
     // The search runs on its own thread so "stop" (read here on the main
     // thread) can actually interrupt an in-progress "go", instead of the
@@ -145,6 +158,7 @@ void uci_loop() {
             std::cout << "readyok" << std::endl;
         } else if (cmd == "ucinewgame") {
             pos.set(kStartFen);
+            game_history = {pos.key()};
         } else if (cmd == "position") {
             size_t i = 1;
             std::string fen;
@@ -167,15 +181,11 @@ void uci_loop() {
             if (!has_one_king_per_side(fen)) continue; // kingless/invalid FEN, ignore
             if (!pos.set(fen)) continue; // malformed FEN, ignore; keep previous position
 
+            std::vector<std::string> uci_moves;
             if (i < tok.size() && tok[i] == "moves") {
-                ++i;
-                for (; i < tok.size(); ++i) {
-                    Move m = uci_to_move(pos, tok[i]);
-                    if (m == MOVE_NONE) break;
-                    StateInfo st;
-                    pos.do_move(m, st);
-                }
+                uci_moves.assign(tok.begin() + i + 1, tok.end());
             }
+            game_history = build_game_history(pos, uci_moves);
         } else if (cmd == "go") {
             SearchLimits lim;
             long long wtime = 0, btime = 0, winc = 0, binc = 0;
@@ -220,6 +230,7 @@ void uci_loop() {
             }
             if (lim.depth > MAX_DEPTH) lim.depth = MAX_DEPTH;
 
+            lim.history = game_history;
             stop_flag = false;
             lim.stop = &stop_flag;
             search_thread = std::thread([&pos, lim]() {

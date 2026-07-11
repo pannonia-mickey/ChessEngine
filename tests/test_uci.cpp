@@ -40,3 +40,28 @@ TEST_CASE("compute_move_time budgets the clock") {
     // No time on our clock -> minimal positive budget.
     CHECK(compute_move_time(WHITE, 0, 60000, 0, 0, 0) == 1);
 }
+
+TEST_CASE("build_game_history returns one key per position including the start") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    auto history = build_game_history(p, {"e2e4", "e7e5"});
+    CHECK(history.size() == 3);
+    CHECK(history[0] != history[1]);
+    CHECK(history[1] != history[2]);
+
+    Position p2; p2.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    StateInfo st;
+    p2.do_move(uci_to_move(p2, "e2e4"), st);
+    p2.do_move(uci_to_move(p2, "e7e5"), st);
+    CHECK(history[2] == p2.key());
+    CHECK(p.fen() == p2.fen()); // build_game_history left p at the final position
+}
+
+TEST_CASE("build_game_history stops at the first illegal move") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    auto history = build_game_history(p, {"e2e4", "bogus", "e7e5"});
+    CHECK(history.size() == 2); // start position + e2e4 only
+}

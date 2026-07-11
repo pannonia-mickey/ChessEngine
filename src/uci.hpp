@@ -1,8 +1,10 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include "move.hpp"
 #include "types.hpp"
+#include "zobrist.hpp"
 
 namespace chess {
 
@@ -19,6 +21,14 @@ std::string move_to_uci(Move m);
 // Takes `pos` by non-const reference because generate_legal() applies/undoes
 // moves on it in place; `pos` is left unchanged once this function returns.
 Move uci_to_move(Position& pos, const std::string& s);
+
+// Play `moves` (UCI coordinate strings) from `pos`'s current position,
+// returning the Zobrist key of every position visited, starting with
+// `pos`'s key before any move is played. Unlike uci_to_move(), `pos` is
+// left at the final position reached, not restored - that's the position
+// the caller wants to keep. Stops early, without applying the rest, at the
+// first move that isn't legal in the position reached so far.
+std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<std::string>& moves);
 
 // Derive a per-move time budget (ms) from the clock for the side to move.
 // Pure/deterministic so it can be unit-tested independently of the UCI loop.
