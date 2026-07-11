@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <vector>
 
 #include "eval.hpp"
 #include "movegen.hpp"
@@ -34,6 +35,34 @@ bool in_check(const Position& pos) {
 
 bool is_capture(const Position& pos, Move m) {
     return pos.piece_on(to_sq(m)) != NO_PIECE || flag_of(m) == EN_PASSANT;
+}
+
+// True if the position at the end of `history` (i.e. `history.back()`) is a
+// draw by repetition, given `halfmove` = Position::halfmove() for that
+// position (how far back a repeat could possibly reach, since a capture or
+// pawn move can never repeat) and `ply` = how many of history's trailing
+// entries were reached by moves this search itself made (0 at the search
+// root; entries before that came from the real game). Identical positions
+// are always an even number of plies apart (each ply flips the side to
+// move), so candidates are checked 2 apart, starting 4 plies back (the
+// minimum possible repeat distance).
+//
+// A match found strictly inside the search's own moves is trusted alone:
+// the search is already choosing to walk back into it, so a second
+// repetition is assumed forceable by symmetry. A match anchored in real
+// game history needs a second such match before it counts, matching the
+// actual threefold-repetition rule (three total occurrences, not two).
+bool is_repetition(const std::vector<zobrist::Key>& history, int halfmove, int ply) {
+    int end = static_cast<int>(history.size()) - 1;
+    int root = end - ply;
+    int limit = end - std::min(halfmove, end);
+    int occurrences = 0;
+    for (int i = end - 4; i >= limit; i -= 2) {
+        if (history[i] != history[end]) continue;
+        if (i > root) return true;
+        if (++occurrences >= 2) return true;
+    }
+    return false;
 }
 
 // Cheap MVV-LVA ordering key: captures score highest (bigger victim, smaller
@@ -119,9 +148,12 @@ constexpr int MAX_CHECK_EXT = 16;
 // leading to this call (see MAX_CHECK_EXT).
 int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
                std::uint64_t& nodes, TimeGuard& tg, const SearchTables& tables,
-               int check_ext = 0) {
+               std::vector<zobrist::Key>& history, int check_ext = 0) {
     ++nodes;
     if (tg.expired(nodes)) return alpha;
+
+    if (pos.halfmove() >= 100 || is_repetition(history, pos.halfmove(), ply))
+        return 0;
 
     // While in check, standing pat is unsound (the check might be a real
     // threat - a fork, a mating net - not just noise), so every legal move
@@ -145,6 +177,7 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
     StateInfo st;
     for (Move m : moves) {
         pos.do_move(m, st);
+        history.push_back(pos.key());
         MoveList child;
         generate_legal(pos, child);
         int score;
@@ -152,8 +185,9 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
             score = in_check(pos) ? -MATE + (ply + 1) : 0;
         } else {
             int next_ext = checked ? check_ext + 1 : 0;
-            score = -quiescence(pos, child, -beta, -alpha, ply + 1, nodes, tg, tables, next_ext);
+            score = -quiescence(pos, child, -beta, -alpha, ply + 1, nodes, tg, tables, history, next_ext);
         }
+        history.pop_back();
         pos.undo_move(m, st);
         if (tg.aborted) return alpha;
 
@@ -170,7 +204,7 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
 // leaves and terminal mate/stalemate nodes).
 int negamax(Position& pos, int depth, int alpha, int beta, int ply,
             std::uint64_t& nodes, TimeGuard& tg, TranspositionTable& tt,
-            SearchTables& tables) {
+            SearchTables& tables, std::vector<zobrist::Key>& history) {
     ++nodes;
     if (tg.expired(nodes)) return 0; // value discarded once aborted
 
@@ -179,8 +213,11 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
     if (list.size == 0)
         return in_check(pos) ? -MATE + ply : 0;
 
+    if (pos.halfmove() >= 100 || is_repetition(history, pos.halfmove(), ply))
+        return 0;
+
     if (depth == 0)
-        return quiescence(pos, list, alpha, beta, ply, nodes, tg, tables);
+        return quiescence(pos, list, alpha, beta, ply, nodes, tg, tables, history);
 
     Color us = pos.side_to_move();
 
@@ -210,8 +247,10 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         constexpr int R = 2;
         NullMoveState nst;
         pos.do_null_move(nst);
+        history.push_back(pos.key());
         int null_score = -negamax(pos, depth - 1 - R, -beta, -beta + 1, ply + 1,
-                                   nodes, tg, tt, tables);
+                                   nodes, tg, tt, tables, history);
+        history.pop_back();
         pos.undo_null_move(nst);
         if (tg.aborted) return 0;
         if (null_score >= beta) return beta;
@@ -229,6 +268,7 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         MoveFlag mf = flag_of(m);
 
         pos.do_move(m, st);
+        history.push_back(pos.key());
         bool gives_check = in_check(pos);
 
         int score;
@@ -242,13 +282,14 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
                       mf != PROMOTION && !gives_check && m != tt_move;
         if (do_lmr) {
             score = -negamax(pos, depth - 2, -alpha - 1, -alpha, ply + 1,
-                              nodes, tg, tt, tables);
+                              nodes, tg, tt, tables, history);
             if (score > alpha)
                 score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
-                                  nodes, tg, tt, tables);
+                                  nodes, tg, tt, tables, history);
         } else {
-            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1, nodes, tg, tt, tables);
+            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1, nodes, tg, tt, tables, history);
         }
+        history.pop_back();
         pos.undo_move(m, st);
         if (tg.aborted) break;
 
@@ -308,6 +349,12 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits) {
     SearchTables tables;
     Move prev_best_move = MOVE_NONE;
 
+    // The caller's game history should already end at the current root; if
+    // it doesn't (e.g. left at its empty default), seed it with just the
+    // root so in-search repeats are still detected.
+    std::vector<zobrist::Key> history = limits.history;
+    if (history.empty() || history.back() != pos.key()) history.push_back(pos.key());
+
     // Always have a legal move to return, even if depth 1 is interrupted.
     result.best = root_list.moves[0];
 
@@ -344,7 +391,9 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits) {
             StateInfo st;
             for (Move m : root_list) {
                 pos.do_move(m, st);
-                int score = -negamax(pos, depth - 1, -beta, -a, 1, total_nodes, tg, tt, tables);
+                history.push_back(pos.key());
+                int score = -negamax(pos, depth - 1, -beta, -a, 1, total_nodes, tg, tt, tables, history);
+                history.pop_back();
                 pos.undo_move(m, st);
                 if (tg.aborted) { root_aborted = true; break; }
 

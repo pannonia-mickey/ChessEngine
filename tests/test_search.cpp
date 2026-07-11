@@ -109,3 +109,77 @@ TEST_CASE("null-move pruning is disabled when the side to move has no non-pawn m
     SearchResult r = search_best_move(p, lim);
     CHECK((to_sq(r.best) == SQ_D8 || to_sq(r.best) == SQ_F8));
 }
+
+TEST_CASE("search claims a draw when a losing position has already repeated twice") {
+    attacks::init();
+    zobrist::init();
+    // White Ke1 is boxed in by three black rooks (d-file, f-file, rank 3):
+    // e1e2 is White's only legal move, every time. Black shuffles its king
+    // harmlessly between h8 and g8 in between.
+    Position p; p.set("3r1r1k/8/8/8/8/r7/8/4K3 w - - 0 1");
+    std::vector<zobrist::Key> history{p.key()};
+    StateInfo st;
+    Move shuffle[4] = {
+        make_move(SQ_E1, SQ_E2), make_move(SQ_H8, SQ_G8),
+        make_move(SQ_E2, SQ_E1), make_move(SQ_G8, SQ_H8),
+    };
+    for (int rep = 0; rep < 2; ++rep) {
+        for (Move m : shuffle) {
+            p.do_move(m, st);
+            history.push_back(p.key());
+        }
+    }
+    // The starting position has now genuinely occurred twice for real
+    // (before and after one full shuffle cycle). White's only legal move
+    // replays the cycle a third time.
+    SearchLimits lim; lim.depth = 1; lim.history = history;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.best == make_move(SQ_E1, SQ_E2));
+    CHECK(r.score == 0);
+}
+
+TEST_CASE("search avoids repeating a winning position when a better move exists") {
+    attacks::init();
+    zobrist::init();
+    // Same shuffle idea, but White (Ke1, Qd1) is the one up material this
+    // time, against a bare black king that has to shuffle e8/f8 for lack of
+    // anything else to do.
+    Position p; p.set("4k3/8/8/8/8/8/8/3QK3 w - - 0 1");
+    std::vector<zobrist::Key> history{p.key()};
+    StateInfo st;
+    Move shuffle[4] = {
+        make_move(SQ_E1, SQ_E2), make_move(SQ_E8, SQ_F8),
+        make_move(SQ_E2, SQ_E1), make_move(SQ_F8, SQ_E8),
+    };
+    for (int rep = 0; rep < 2; ++rep) {
+        for (Move m : shuffle) {
+            p.do_move(m, st);
+            history.push_back(p.key());
+        }
+    }
+    // e1e2 would complete a third repetition (score 0, since it already
+    // happened for real twice); every other legal move keeps the extra
+    // queen instead, so a repetition-aware search must prefer one of those.
+    SearchLimits lim; lim.depth = 1; lim.history = history;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.best != make_move(SQ_E1, SQ_E2));
+    CHECK(r.score > 0);
+}
+
+TEST_CASE("fifty-move rule scores a draw once the halfmove clock reaches 100") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("4k3/8/8/8/8/8/8/3QK3 w - - 99 1");
+    SearchLimits lim; lim.depth = 1;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.score == 0);
+}
+
+TEST_CASE("fifty-move rule does not trigger one ply early") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("4k3/8/8/8/8/8/8/3QK3 w - - 98 1");
+    SearchLimits lim; lim.depth = 1;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.score > 0);
+}

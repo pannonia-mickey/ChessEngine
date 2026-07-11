@@ -3,7 +3,9 @@
 
 #include <atomic>
 #include <cstdint>
+#include <vector>
 #include "move.hpp"
+#include "zobrist.hpp"
 
 namespace chess {
 
@@ -16,6 +18,12 @@ struct SearchLimits {
     // (e.g. from a UCI "stop" command handled on another thread) aborts the
     // search early, same as a movetime deadline expiring.
     std::atomic<bool>* stop = nullptr;
+    // Zobrist keys of every position played so far this game, from the
+    // game's starting position through the position about to be searched
+    // (inclusive), in order. Used to detect repetition draws anchored in
+    // real game history, not just ones found within the search tree. Left
+    // empty, the search still finds repeats made entirely of its own moves.
+    std::vector<zobrist::Key> history;
 };
 
 struct SearchResult {
