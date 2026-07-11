@@ -183,3 +183,52 @@ TEST_CASE("fifty-move rule does not trigger one ply early") {
     SearchResult r = search_best_move(p, lim);
     CHECK(r.score > 0);
 }
+
+TEST_CASE("fifty-move rule scores a draw when the clock reaches 100 inside quiescence") {
+    attacks::init();
+    zobrist::init();
+    // White is down a bishop and two pawns with no way to recapture, so any
+    // quiet move stays clearly worse than a draw - except Nd6-f7+, whose
+    // only legal reply (Kh8-g8, forced: g7/h7 are Black's own pawns, Bf8
+    // blocks f8, and f7 is now occupied by White's knight) pushes the
+    // halfmove clock from 99 to 100 one ply into quiescence's own
+    // check-evasion recursion, which is where the draw is actually claimed
+    // - negamax's own copy of the check doesn't fire here (halfmove is
+    // still 99 when negamax hands off to quiescence).
+    Position p; p.set("5b1k/6pp/3N4/8/8/8/8/6K1 w - - 98 1");
+    SearchLimits lim; lim.depth = 1;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.best == make_move(SQ_D6, SQ_F7));
+    CHECK(r.score == 0);
+}
+
+TEST_CASE("search finds a draw by perpetual check that only repeats inside its own search tree") {
+    attacks::init();
+    zobrist::init();
+    // White (bare Kg1 + Nd6) is down a bishop, a knight and a pawn against
+    // Black Kh8, Bf8, Ng7, Ph7, so any quiet move loses outright - except
+    // Nd6-f7+, which starts a perpetual check the knight can keep up forever
+    // by oscillating f7<->h6: from h8 in check from Nf7, g7/h7 are Black's
+    // own pieces and Bf8 blocks f8, so Kh8-g8 is forced; from g8 in check
+    // from Nh6 (which also covers f7, the square it just vacated), f8/g7/h7
+    // are still blocked, so Kg8-h8 is forced right back. Ng7 (not a pawn)
+    // is deliberately used instead of a second pawn so it can never capture
+    // the knight on h6 (a pawn on g7 could, via g7xh6, breaking the loop),
+    // and it also shields Bf8 from ever reaching h6 along the f8-h6
+    // diagonal. No SearchLimits.history is supplied, so the only position
+    // pre-loaded into the search's repetition history is the root itself
+    // (history index 0); the position after Nf7+ (White knight f7, Black
+    // king h8, Black to move) recurs 4 plies later purely through the
+    // search's own move exploration (ply 1 and ply 5), which is a genuinely
+    // different position from the root (root has the knight on d6, not f7,
+    // and Black's king still on h8 in both, but reached with different
+    // knight placement) - so the repeated position's earlier occurrence is
+    // strictly deeper than the root, hitting is_repetition's `i > root`
+    // branch, not the `occurrences >= 2` branch that the other repetition
+    // tests exercise via pre-seeded history.
+    Position p; p.set("5b1k/6np/3N4/8/8/8/8/6K1 w - - 0 1");
+    SearchLimits lim; lim.depth = 6;
+    SearchResult r = search_best_move(p, lim);
+    CHECK(r.best == make_move(SQ_D6, SQ_F7));
+    CHECK(r.score == 0);
+}
