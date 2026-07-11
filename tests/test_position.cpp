@@ -139,3 +139,14 @@ TEST_CASE("null move flips side to move, clears ep, and undoes exactly") {
     CHECK(p.fen() == before);
     CHECK(p.key() == key_before);
 }
+
+TEST_CASE("halfmove accessor reflects the FEN and updates through do/undo") {
+    attacks::init();
+    Position p; p.set("4k3/8/8/8/8/8/8/4K3 w - - 5 10");
+    CHECK(p.halfmove() == 5);
+    StateInfo st;
+    p.do_move(make_move(SQ_E1, SQ_E2), st);
+    CHECK(p.halfmove() == 6);
+    p.undo_move(make_move(SQ_E1, SQ_E2), st);
+    CHECK(p.halfmove() == 5);
+}

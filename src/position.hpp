@@ -50,6 +50,7 @@ public:
     Color side_to_move() const { return stm_; }
     Square ep_square() const { return ep_; }
     int castling_rights() const { return castling_; }
+    int halfmove() const { return halfmove_; }
     Square king_square(Color c) const { return lsb(pieces(c, KING)); }
     zobrist::Key key() const { return key_; }
 
