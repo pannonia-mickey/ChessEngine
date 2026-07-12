@@ -31,11 +31,14 @@ public:
     }
 
     // Parse a FEN string and set the position's state accordingly.
-    // Returns true if `fen` was well-formed and the position was updated, or
-    // false if `fen` was malformed (out-of-range ranks/files in the piece
-    // placement field, or non-numeric/overflowing halfmove/fullmove fields).
-    // On false, the position's state is left unchanged (validation happens
-    // before any member state is mutated).
+    // Returns true if `fen` was well-formed and legal and the position was
+    // updated, or false if `fen` was malformed (out-of-range ranks/files in
+    // the piece placement field, or non-numeric/overflowing halfmove/fullmove
+    // fields) or illegal (the side not to move is in check). On false, the
+    // position's state is left unchanged: malformed input is caught before
+    // any member state is mutated, while the illegal-position check needs
+    // the committed board to evaluate, so that path mutates and then rolls
+    // back to a snapshot taken just before committing.
     bool set(const std::string& fen);
 
     // Serialize the current state back to a FEN string.
