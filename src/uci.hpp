@@ -5,6 +5,7 @@
 #include "move.hpp"
 #include "types.hpp"
 #include "zobrist.hpp"
+#include "tt.hpp"
 
 namespace chess {
 
@@ -50,6 +51,15 @@ bool parse_debug_command(const std::vector<std::string>& tok, bool current);
 // the caller wants to keep. Stops early, without applying the rest, at the
 // first move that isn't legal in the position reached so far.
 std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<std::string>& moves);
+
+// Reconstruct a principal variation starting with `first`, by repeatedly
+// playing the position's TT-recommended best move and probing again, up to
+// `max_len` moves. Stops early if a stored move isn't legal in the position
+// it was reached at (a defensive check, exactly like uci_to_move/
+// build_game_history: TT entries can in principle be stale or, in a hash
+// collision, belong to a different position) or if the TT has no entry for
+// the reached position. `pos` is left unchanged once this function returns.
+std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len);
 
 // Derive a per-move time budget (ms) from the clock for the side to move.
 // Pure/deterministic so it can be unit-tested independently of the UCI loop.

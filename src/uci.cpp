@@ -133,6 +133,30 @@ std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<st
     return history;
 }
 
+std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len) {
+    std::vector<Move> pv;
+    std::vector<StateInfo> states;
+    Move m = first;
+    while (m != MOVE_NONE && static_cast<int>(pv.size()) < max_len) {
+        MoveList legal;
+        generate_legal(pos, legal);
+        bool ok = false;
+        for (Move lm : legal) if (lm == m) { ok = true; break; }
+        if (!ok) break;
+
+        StateInfo st;
+        pos.do_move(m, st);
+        states.push_back(st);
+        pv.push_back(m);
+
+        const TTEntry* e = tt.probe(pos.key());
+        m = e ? e->best : MOVE_NONE;
+    }
+    for (int i = static_cast<int>(pv.size()) - 1; i >= 0; --i)
+        pos.undo_move(pv[i], states[i]);
+    return pv;
+}
+
 std::string format_score(int score) {
     if (score >= MATE - MAX_DEPTH) {
         int moves = (MATE - score + 1) / 2;

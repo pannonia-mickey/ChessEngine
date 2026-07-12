@@ -105,3 +105,66 @@ TEST_CASE("parse_debug_command ignores a malformed command") {
     CHECK(parse_debug_command({"debug"}, true) == true);
     CHECK(parse_debug_command({"debug", "maybe"}, false) == false);
 }
+
+TEST_CASE("extract_pv walks the TT's stored best moves into a move sequence") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    TranspositionTable tt(16);
+
+    Move e2e4 = uci_to_move(p, "e2e4");
+    StateInfo st1; p.do_move(e2e4, st1);
+    Move e7e5 = uci_to_move(p, "e7e5");
+    tt.store(p.key(), 1, 0, TT_EXACT, e7e5); // TT entry for the position after e2e4
+    p.undo_move(e2e4, st1);
+
+    std::vector<Move> pv = extract_pv(p, tt, e2e4, 5);
+    REQUIRE(pv.size() == 2);
+    CHECK(pv[0] == e2e4);
+    CHECK(pv[1] == e7e5);
+    CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
+}
+
+TEST_CASE("extract_pv stops when the TT has no entry for the reached position") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    TranspositionTable tt(16); // empty
+    Move e2e4 = uci_to_move(p, "e2e4");
+    std::vector<Move> pv = extract_pv(p, tt, e2e4, 5);
+    REQUIRE(pv.size() == 1);
+    CHECK(pv[0] == e2e4);
+}
+
+TEST_CASE("extract_pv stops at a TT-stored move that isn't legal in the reached position") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    TranspositionTable tt(16);
+    Move e2e4 = uci_to_move(p, "e2e4");
+    StateInfo st1; p.do_move(e2e4, st1);
+    // Store a move that is not legal after 1.e4 (still White's pawn on e2 in
+    // this stored move, which no longer exists there).
+    tt.store(p.key(), 1, 0, TT_EXACT, make_move(SQ_E2, SQ_E4));
+    p.undo_move(e2e4, st1);
+
+    std::vector<Move> pv = extract_pv(p, tt, e2e4, 5);
+    REQUIRE(pv.size() == 1);
+    CHECK(pv[0] == e2e4);
+}
+
+TEST_CASE("extract_pv respects max_len") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    TranspositionTable tt(16);
+    Move e2e4 = uci_to_move(p, "e2e4");
+    StateInfo st1; p.do_move(e2e4, st1);
+    Move e7e5 = uci_to_move(p, "e7e5");
+    tt.store(p.key(), 1, 0, TT_EXACT, e7e5);
+    p.undo_move(e2e4, st1);
+
+    std::vector<Move> pv = extract_pv(p, tt, e2e4, 1);
+    REQUIRE(pv.size() == 1);
+    CHECK(pv[0] == e2e4);
+}
