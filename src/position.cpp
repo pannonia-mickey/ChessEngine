@@ -107,7 +107,14 @@ bool Position::set(const std::string& fen) {
         if (res.ec != std::errc() || res.ptr != fullmove.data() + fullmove.size()) return false;
     }
 
-    // Everything validated; commit to member state.
+    // Everything validated; commit to member state. Keep a snapshot first
+    // so we can roll back if the fully-parsed FEN turns out to be illegal
+    // (the side not to move left in check) — the earlier failure paths all
+    // return before this point specifically so a malformed FEN never
+    // touches member state; this snapshot extends that same guarantee to a
+    // failure that can only be detected after piece placement is known.
+    Position saved = *this;
+
     for (int t = 0; t < PIECE_TYPE_NB; ++t) by_type_[t] = 0;
     for (int c = 0; c < COLOR_NB; ++c) by_color_[c] = 0;
     for (int s = 0; s < SQUARE_NB; ++s) board_[s] = NO_PIECE;
@@ -173,6 +180,20 @@ bool Position::set(const std::string& fen) {
     key_ ^= zobrist::castling[castling_];
     if (ep_ != SQ_NONE) key_ ^= zobrist::ep_file[file_of(ep_)];
     if (stm_ == BLACK) key_ ^= zobrist::side;
+
+    // A FEN is illegal if the side NOT to move is left in check: that could
+    // only arise if the side to move's last move ignored or walked into
+    // check on its own king, which no legal sequence of moves produces.
+    // Skip the check when the opponent doesn't have exactly one king on the
+    // board: king_square() assumes exactly one, and some callers (e.g.
+    // move-generation tests exercising a single side in isolation)
+    // deliberately build boards without a king for one color.
+    Color opponent = Color(stm_ ^ 1);
+    if (popcount(pieces(opponent, KING)) == 1 &&
+        square_attacked_by(king_square(opponent), stm_)) {
+        *this = saved;
+        return false;
+    }
 
     return true;
 }

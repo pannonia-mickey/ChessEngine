@@ -108,6 +108,34 @@ TEST_CASE("FEN with a pawn on the back rank is rejected") {
     CHECK(p.set("4k3/8/8/8/8/8/8/p3K3 w - - 0 1") == false);
 }
 
+TEST_CASE("FEN leaving the side not to move in check is rejected") {
+    attacks::init();
+    // Black rook on e4 checks the white king on e1 along the e-file.
+    // With Black to move, White (not to move) being in check is illegal:
+    // White's own last move would have had to leave its king in check.
+    Position p;
+    CHECK(p.set("4k3/8/8/8/4r3/8/8/4K3 b - - 0 1") == false);
+}
+
+TEST_CASE("FEN leaving the side to move itself in check is accepted") {
+    attacks::init();
+    // Same board, but White to move: White's own king being in check is
+    // completely legal (White is simply in check and must respond to it).
+    Position p;
+    CHECK(p.set("4k3/8/8/8/4r3/8/8/4K3 w - - 0 1") == true);
+    CHECK(p.side_to_move() == WHITE);
+}
+
+TEST_CASE("FEN missing the opponent's king entirely is still accepted") {
+    attacks::init();
+    // No black king on the board at all. king_square() assumes exactly one
+    // king per side, so the opponent-in-check validation must not attempt
+    // to evaluate this case (some tests intentionally build single-sided
+    // boards, e.g. tests/test_movegen.cpp's pinned-piece test).
+    Position p;
+    CHECK(p.set("8/8/8/8/4r3/8/8/4K3 w - - 0 1") == true);
+}
+
 TEST_CASE("capturing rook on home square clears that side's castling right, undo restores") {
     attacks::init();
     static const char* ROOK_FEN = "4k3/8/8/8/8/2b5/8/R3K2R b KQ - 0 1";
