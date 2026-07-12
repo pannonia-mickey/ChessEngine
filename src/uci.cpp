@@ -1,6 +1,7 @@
 #include "uci.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <iostream>
 #include <sstream>
 #include <iterator>
@@ -274,6 +275,14 @@ void uci_loop() {
     bool pondering = false;
     long long ponder_wtime = 0, ponder_btime = 0, ponder_winc = 0, ponder_binc = 0;
     int ponder_movestogo = 0;
+    // Stashed on the main thread in the "go ponder" branch below, before
+    // search_thread starts mutating `pos` concurrently. "ponderhit" must use
+    // this instead of reading pos.side_to_move() live, since at that point
+    // the ponder search thread is still running (join_search() is
+    // deliberately skipped for "ponderhit") and pos is being mutated
+    // in-place by do_move/undo_move on every search node - reading it from
+    // the main thread there would be a data race.
+    Color ponder_side = WHITE;
     std::thread ponder_timer;
 
     std::string line;
@@ -313,12 +322,33 @@ void uci_loop() {
         } else if (cmd == "ponderhit") {
             if (pondering) {
                 pondering = false;
-                long long budget = compute_move_time(pos.side_to_move(), ponder_wtime, ponder_btime,
+                long long budget = compute_move_time(ponder_side, ponder_wtime, ponder_btime,
                                                       ponder_winc, ponder_binc, ponder_movestogo);
                 if (ponder_timer.joinable()) ponder_timer.join();
                 ponder_timer = std::thread([&stop_flag, budget]() {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(budget));
-                    stop_flag = true;
+                    // Poll in short increments against a fixed deadline
+                    // instead of one flat sleep_for(budget): if something
+                    // else (a "stop" command's own `stop_flag = true`, or
+                    // the search finishing on its own) already sets
+                    // stop_flag first, this loop notices promptly and
+                    // returns, so "stop"'s `ponder_timer.join()` doesn't
+                    // block for the full budget. Otherwise it sets
+                    // stop_flag itself once its own budget elapses,
+                    // converting the ponder search into a timed one. The
+                    // deadline is computed once from steady_clock rather
+                    // than accumulated from nominal per-iteration sleep
+                    // lengths, since actual sleep_for(10ms) calls can
+                    // overshoot by the OS's timer-resolution granularity
+                    // (e.g. ~15ms on Windows), which would otherwise
+                    // compound over many iterations into a badly inflated
+                    // total budget.
+                    constexpr auto kPoll = std::chrono::milliseconds(10);
+                    auto deadline = std::chrono::steady_clock::now() +
+                                     std::chrono::milliseconds(budget);
+                    while (!stop_flag.load() && std::chrono::steady_clock::now() < deadline) {
+                        std::this_thread::sleep_for(kPoll);
+                    }
+                    if (!stop_flag.load()) stop_flag = true;
                 });
             }
         } else if (cmd == "position") {
@@ -378,6 +408,7 @@ void uci_loop() {
 
             if (g.ponder) {
                 pondering = true;
+                ponder_side = pos.side_to_move();
                 ponder_wtime = g.wtime; ponder_btime = g.btime;
                 ponder_winc = g.winc; ponder_binc = g.binc;
                 ponder_movestogo = g.movestogo;
