@@ -138,14 +138,17 @@ TEST_CASE("FEN missing the opponent's king entirely is still accepted") {
 
 TEST_CASE("capturing rook on home square clears that side's castling right, undo restores") {
     attacks::init();
-    static const char* ROOK_FEN = "4k3/8/8/8/8/2b5/8/R3K2R b KQ - 0 1";
+    // Bishop on d4 (not c3): it still captures the a1 rook diagonally via
+    // d4-c3-b2-a1, but — unlike c3 — it doesn't also check White's e1 king,
+    // which would make this an illegal FEN (Black to move, White in check).
+    static const char* ROOK_FEN = "4k3/8/8/8/3b4/8/8/R3K2R b KQ - 0 1";
     Position p; p.set(ROOK_FEN);
     std::string before = p.fen();
     StateInfo st;
-    p.do_move(make_move(SQ_C3, SQ_A1), st);
+    p.do_move(make_move(SQ_D4, SQ_A1), st);
     CHECK((p.castling_rights() & WHITE_OOO) == 0);
     CHECK((p.castling_rights() & WHITE_OO) != 0);
-    p.undo_move(make_move(SQ_C3, SQ_A1), st);
+    p.undo_move(make_move(SQ_D4, SQ_A1), st);
     CHECK(p.fen() == before);
 }
 
