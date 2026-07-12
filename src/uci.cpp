@@ -208,6 +208,25 @@ std::string format_score(int score) {
     return "cp " + std::to_string(score);
 }
 
+std::string format_info_line(const IterationInfo& info, const std::vector<Move>& pv, int hashfull) {
+    double seconds = info.time_ms / 1000.0;
+    std::uint64_t nps = seconds > 0.0
+        ? static_cast<std::uint64_t>(static_cast<double>(info.nodes) / seconds)
+        : info.nodes;
+
+    std::string s = "info depth " + std::to_string(info.depth) +
+                     " seldepth " + std::to_string(info.seldepth) +
+                     " multipv " + std::to_string(info.multipv_index + 1) +
+                     " score " + format_score(info.score) +
+                     " nodes " + std::to_string(info.nodes) +
+                     " nps " + std::to_string(nps) +
+                     " hashfull " + std::to_string(hashfull) +
+                     " time " + std::to_string(info.time_ms) +
+                     " pv";
+    for (Move m : pv) s += ' ' + move_to_uci(m);
+    return s;
+}
+
 long long compute_move_time(Color us, long long wtime, long long btime,
                             long long winc, long long binc, int movestogo) {
     long long t   = (us == WHITE) ? wtime : btime;
@@ -329,13 +348,17 @@ void uci_loop() {
             lim.history = game_history;
             stop_flag = false;
             lim.stop = &stop_flag;
+            // Reported per completed depth from inside search_best_move()
+            // (running on search_thread), so a GUI sees progress instead of
+            // one info line at the very end. Safe to touch `pos`/`tt` here:
+            // the search thread only calls back between root moves, when
+            // both are back at the search's root state.
+            lim.on_iteration = [&pos, &tt](const IterationInfo& info) {
+                std::vector<Move> pv = extract_pv(pos, tt, info.best, info.depth);
+                std::cout << format_info_line(info, pv, tt.hashfull()) << std::endl;
+            };
             search_thread = std::thread([&pos, &tt, lim]() {
                 SearchResult r = search_best_move(pos, lim, tt);
-                // A GUI/tournament manager (e.g. fastchess) expects at least
-                // one "info ... score ..." line before "bestmove" to know
-                // what the engine thought of the position.
-                std::cout << "info depth " << r.depth << " score " << format_score(r.score)
-                          << " nodes " << r.nodes << std::endl;
                 if (r.best == MOVE_NONE) {
                     std::cout << "bestmove (none)" << std::endl;
                 } else {

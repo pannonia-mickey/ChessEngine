@@ -6,6 +6,7 @@
 #include "types.hpp"
 #include "zobrist.hpp"
 #include "tt.hpp"
+#include "search.hpp"
 
 namespace chess {
 
@@ -92,5 +93,12 @@ long long compute_move_time(Color us, long long wtime, long long btime,
 // negative when the side to move is the one getting mated) for scores in
 // the mate range.
 std::string format_score(int score);
+
+// Format one "info depth ... pv ..." line for a completed iterative-
+// deepening depth (or, under MultiPV, one reported line at that depth).
+// `hashfull` is the transposition table's current occupancy (see
+// TranspositionTable::hashfull()) - passed in rather than looked up here so
+// this function stays a pure formatter, independent of any specific table.
+std::string format_info_line(const IterationInfo& info, const std::vector<Move>& pv, int hashfull);
 
 } // namespace chess

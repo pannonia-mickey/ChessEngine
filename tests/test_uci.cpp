@@ -231,3 +231,39 @@ TEST_CASE("parse_go stops searchmoves at the first token that isn't a legal move
     GoOptions g = parse_go(p, {"go", "searchmoves", "e2e4", "bogus"});
     CHECK(g.search_moves.size() == 1);
 }
+
+TEST_CASE("format_info_line formats a full UCI info line") {
+    attacks::init();
+    IterationInfo info;
+    info.multipv_index = 0;
+    info.depth = 5;
+    info.seldepth = 8;
+    info.score = 37;
+    info.nodes = 12345;
+    info.time_ms = 100;
+    info.best = make_move(SQ_E2, SQ_E4);
+
+    std::vector<Move> pv = {make_move(SQ_E2, SQ_E4), make_move(SQ_E7, SQ_E5)};
+    std::string line = format_info_line(info, pv, 42);
+    CHECK(line ==
+        "info depth 5 seldepth 8 multipv 1 score cp 37 nodes 12345 "
+        "nps 123450 hashfull 42 time 100 pv e2e4 e7e5");
+}
+
+TEST_CASE("format_info_line handles zero elapsed time without dividing by zero") {
+    IterationInfo info;
+    info.depth = 1; info.seldepth = 1; info.score = 0; info.nodes = 500; info.time_ms = 0;
+    info.best = make_move(SQ_E2, SQ_E4);
+    std::string line = format_info_line(info, {info.best}, 0);
+    CHECK(line == "info depth 1 seldepth 1 multipv 1 score cp 0 nodes 500 "
+                  "nps 500 hashfull 0 time 0 pv e2e4");
+}
+
+TEST_CASE("format_info_line reports a second MultiPV line as multipv 2") {
+    IterationInfo info;
+    info.multipv_index = 1;
+    info.depth = 2; info.seldepth = 2; info.score = -10; info.nodes = 10; info.time_ms = 1;
+    info.best = make_move(SQ_D2, SQ_D4);
+    std::string line = format_info_line(info, {info.best}, 0);
+    CHECK(line.find("multipv 2 ") != std::string::npos);
+}
