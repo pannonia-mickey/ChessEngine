@@ -173,6 +173,7 @@ TEST_CASE("extract_pv respects max_len") {
 }
 
 TEST_CASE("parse_go reads depth and marks depth_set") {
+    attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     GoOptions g = parse_go(p, {"go", "depth", "10"});
     CHECK(g.depth == 10);
@@ -180,6 +181,7 @@ TEST_CASE("parse_go reads depth and marks depth_set") {
 }
 
 TEST_CASE("parse_go reads movetime and marks movetime_set") {
+    attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     GoOptions g = parse_go(p, {"go", "movetime", "500"});
     CHECK(g.movetime_ms == 500);
@@ -187,6 +189,7 @@ TEST_CASE("parse_go reads movetime and marks movetime_set") {
 }
 
 TEST_CASE("parse_go reads clock and increment fields") {
+    attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     GoOptions g = parse_go(p, {"go", "wtime", "60000", "btime", "50000",
                                 "winc", "1000", "binc", "500", "movestogo", "20"});
@@ -198,6 +201,7 @@ TEST_CASE("parse_go reads clock and increment fields") {
 }
 
 TEST_CASE("parse_go reads infinite and ponder flags") {
+    attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     CHECK(parse_go(p, {"go", "infinite"}).infinite);
     CHECK(parse_go(p, {"go", "ponder"}).ponder);
@@ -205,6 +209,7 @@ TEST_CASE("parse_go reads infinite and ponder flags") {
 }
 
 TEST_CASE("parse_go reads a nodes limit") {
+    attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     GoOptions g = parse_go(p, {"go", "nodes", "50000"});
     CHECK(g.nodes_limit == 50000);
