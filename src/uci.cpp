@@ -84,6 +84,36 @@ Move uci_to_move(Position& pos, const std::string& s) {
     return MOVE_NONE;
 }
 
+SetOption parse_setoption(const std::vector<std::string>& tok) {
+    SetOption opt;
+    std::size_t i = 1;
+    if (i < tok.size() && tok[i] == "name") ++i;
+
+    std::vector<std::string> name_parts;
+    while (i < tok.size() && tok[i] != "value") { name_parts.push_back(tok[i]); ++i; }
+    for (std::size_t k = 0; k < name_parts.size(); ++k) {
+        if (k) opt.name += ' ';
+        opt.name += name_parts[k];
+    }
+
+    if (i < tok.size() && tok[i] == "value") {
+        ++i;
+        for (std::size_t k = i; k < tok.size(); ++k) {
+            if (k > i) opt.value += ' ';
+            opt.value += tok[k];
+        }
+    }
+    return opt;
+}
+
+std::vector<std::string> option_lines() {
+    return {
+        "option name Hash type spin default 16 min 1 max 1024",
+        "option name Ponder type check default false",
+        "option name MultiPV type spin default 1 min 1 max 256",
+    };
+}
+
 std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<std::string>& moves) {
     std::vector<zobrist::Key> history{pos.key()};
     for (const std::string& s : moves) {
@@ -131,6 +161,7 @@ void uci_loop() {
     // allocation itself) persist across moves within the same game instead
     // of being rebuilt from scratch on every "go".
     TranspositionTable tt(16);
+    int multipv_setting = 1;
 
     // The search runs on its own thread so "stop" (read here on the main
     // thread) can actually interrupt an in-progress "go", instead of the
@@ -159,6 +190,7 @@ void uci_loop() {
         if (cmd == "uci") {
             std::cout << "id name ChessEngine" << std::endl;
             std::cout << "id author ChessEngine Project" << std::endl;
+            for (const std::string& opt_line : option_lines()) std::cout << opt_line << std::endl;
             std::cout << "uciok" << std::endl;
         } else if (cmd == "isready") {
             std::cout << "readyok" << std::endl;
@@ -253,6 +285,22 @@ void uci_loop() {
                     std::cout << "bestmove " << move_to_uci(r.best) << std::endl;
                 }
             });
+        } else if (cmd == "setoption") {
+            SetOption opt = parse_setoption(tok);
+            if (opt.name == "Hash") {
+                try {
+                    long mb = std::stol(opt.value);
+                    if (mb >= 1) tt.resize(static_cast<std::size_t>(mb));
+                } catch (const std::exception&) {}
+            } else if (opt.name == "MultiPV") {
+                try {
+                    int v = std::stoi(opt.value);
+                    if (v >= 1) multipv_setting = v;
+                } catch (const std::exception&) {}
+            }
+            // "Ponder" and any other option name are accepted and ignored:
+            // Ponder is purely a GUI capability declaration - this engine
+            // only ponders when explicitly told via "go ponder".
         } else if (cmd == "quit") {
             break;
         }

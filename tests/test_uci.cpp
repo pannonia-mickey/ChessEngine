@@ -65,3 +65,30 @@ TEST_CASE("build_game_history stops at the first illegal move") {
     auto history = build_game_history(p, {"e2e4", "bogus", "e7e5"});
     CHECK(history.size() == 2); // start position + e2e4 only
 }
+
+TEST_CASE("parse_setoption splits name and value") {
+    SetOption opt = parse_setoption({"setoption", "name", "Hash", "value", "64"});
+    CHECK(opt.name == "Hash");
+    CHECK(opt.value == "64");
+}
+
+TEST_CASE("parse_setoption handles a multi-word option name with no value") {
+    SetOption opt = parse_setoption({"setoption", "name", "Clear", "Hash"});
+    CHECK(opt.name == "Clear Hash");
+    CHECK(opt.value == "");
+}
+
+TEST_CASE("parse_setoption handles a multi-word value") {
+    SetOption opt = parse_setoption(
+        {"setoption", "name", "Debug", "Log", "File", "value", "log", "file.txt"});
+    CHECK(opt.name == "Debug Log File");
+    CHECK(opt.value == "log file.txt");
+}
+
+TEST_CASE("option_lines advertises Hash, Ponder, and MultiPV") {
+    auto lines = option_lines();
+    REQUIRE(lines.size() == 3);
+    CHECK(lines[0] == "option name Hash type spin default 16 min 1 max 1024");
+    CHECK(lines[1] == "option name Ponder type check default false");
+    CHECK(lines[2] == "option name MultiPV type spin default 1 min 1 max 256");
+}

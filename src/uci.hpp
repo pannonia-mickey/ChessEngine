@@ -22,6 +22,22 @@ std::string move_to_uci(Move m);
 // moves on it in place; `pos` is left unchanged once this function returns.
 Move uci_to_move(Position& pos, const std::string& s);
 
+// A parsed "setoption name <Name> [value <Value>]" command. Both name and
+// value may contain spaces (rejoined with single spaces on parse); value is
+// empty for button-type options, none of which this engine currently
+// declares.
+struct SetOption {
+    std::string name;
+    std::string value;
+};
+
+// Parse a "setoption" command's tokens (tok[0] == "setoption").
+SetOption parse_setoption(const std::vector<std::string>& tok);
+
+// The "option ..." lines this engine advertises in response to "uci", in
+// the order they should be printed, before "uciok".
+std::vector<std::string> option_lines();
+
 // Play `moves` (UCI coordinate strings) from `pos`'s current position,
 // returning the Zobrist key of every position visited, starting with
 // `pos`'s key before any move is played. Unlike uci_to_move(), `pos` is
