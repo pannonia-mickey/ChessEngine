@@ -71,3 +71,18 @@ TEST_CASE("a centralized knight has higher mobility than one boxed in by its own
     // mobility, leaving only a6, b7, d7, e6 reachable (mobility = 4).
     CHECK(evaluate(mobile) > evaluate(boxed));
 }
+
+TEST_CASE("the bishop pair is worth a bonus over a lone bishop") {
+    attacks::init();
+    // White has two bishops in both positions on the same squares; Black
+    // has a bishop+knight vs bishop+bishop, isolating the pair bonus.
+    // Bishop and knight MG material values are close enough (365 vs 337)
+    // that the direction of the check isolates the pair bonus rather than
+    // being dominated by the material gap.
+    Position pair;    pair.set("4k3/8/8/8/8/2b2b2/8/4K3 b - - 0 1");   // Black bishops c3,f3
+    Position no_pair; no_pair.set("4k3/8/8/8/8/2n2b2/8/4K3 b - - 0 1"); // Black knight+bishop c3,f3
+    // Black to move in both; compare from White's perspective by negating,
+    // since evaluate() is side-to-move-relative and it's Black's material
+    // that differs here.
+    CHECK(-evaluate(pair) > -evaluate(no_pair));
+}

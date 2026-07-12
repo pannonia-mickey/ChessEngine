@@ -208,6 +208,14 @@ int mobility(const Position& pos, Color c) {
     return score;
 }
 
+// Flat bonus for holding both bishops (better long-term minor-piece
+// coordination and color-complex control than a lone bishop).
+constexpr int BISHOP_PAIR_BONUS = 30;
+
+int bishop_pair(const Position& pos, Color c) {
+    return popcount(pos.pieces(c, BISHOP)) >= 2 ? BISHOP_PAIR_BONUS : 0;
+}
+
 }  // namespace
 
 int evaluate(const Position& pos) {
@@ -236,7 +244,8 @@ int evaluate(const Position& pos) {
     }
 
     int phase = game_phase(pos);
-    int flat_score = mobility(pos, WHITE) - mobility(pos, BLACK);
+    int flat_score = mobility(pos, WHITE) - mobility(pos, BLACK)
+                    + bishop_pair(pos, WHITE) - bishop_pair(pos, BLACK);
     int score = taper(mg_score, eg_score, phase) + flat_score;
 
     // Return score from side-to-move's perspective
