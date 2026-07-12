@@ -40,6 +40,11 @@ struct SearchLimits {
     // IterationInfo). Left null (the default), the search doesn't report
     // progress at all - only the final SearchResult.
     std::function<void(const IterationInfo&)> on_iteration = nullptr;
+    // Number of top root lines to search and report via on_iteration, most
+    // to least favorable (UCI "MultiPV"). 1 (the default) is exactly the
+    // original single-line behavior: SearchResult's best/score/depth always
+    // describe line 0 regardless of this setting.
+    int multi_pv = 1;
 };
 
 struct SearchResult {

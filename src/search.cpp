@@ -374,76 +374,93 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
 
     int prev_score = 0;
 
+    int effective_multipv = std::max(1, limits.multi_pv);
+
     for (int depth = 1; depth <= limits.depth; ++depth) {
         if (limits.stop && limits.stop->load(std::memory_order_relaxed)) break;
         if (tg.active && depth > 1 &&
             std::chrono::steady_clock::now() >= tg.deadline)
             break;
 
-        order_moves(pos, root_list, prev_best_move, 0, tables);
-        tables.seldepth = 0;
+        std::vector<Move> excluded;
+        bool depth_aborted = false;
 
-        // Aspiration window: guess the score won't move far from the last
-        // iteration's, so a narrow window prunes more at the root. On
-        // failure (the true score lies outside the guess), widen to the
-        // full open window and re-search that depth once - this makes a bad
-        // guess cost extra nodes, never a wrong answer.
-        constexpr int ASP_WINDOW = 25;
-        int alpha = -INF, beta = INF;
-        if (depth >= 4) {
-            alpha = prev_score - ASP_WINDOW;
-            beta = prev_score + ASP_WINDOW;
-        }
+        for (int line = 0; line < effective_multipv; ++line) {
+            MoveList line_list;
+            for (Move m : root_list)
+                if (std::find(excluded.begin(), excluded.end(), m) == excluded.end())
+                    line_list.add(m);
+            if (line_list.size == 0) break; // fewer legal root moves than requested lines
 
-        Move best_move = root_list.moves[0];
-        int best_score = -INF;
-        bool root_aborted = false;
+            // Aspiration windows are only meaningful for line 0, whose score
+            // history (prev_score) is what they're guessing around; other
+            // lines search the full window every time.
+            order_moves(pos, line_list, line == 0 ? prev_best_move : MOVE_NONE, 0, tables);
+            tables.seldepth = 0;
 
-        while (true) {
-            best_score = -INF;
-            Move iter_best_move = root_list.moves[0];
-            int a = alpha;
-            StateInfo st;
-            for (Move m : root_list) {
-                pos.do_move(m, st);
-                history.push_back(pos.key());
-                int score = -negamax(pos, depth - 1, -beta, -a, 1, total_nodes, tg, tt, tables, history);
-                history.pop_back();
-                pos.undo_move(m, st);
-                if (tg.aborted) { root_aborted = true; break; }
-
-                if (score > best_score) { best_score = score; iter_best_move = m; }
-                if (best_score > a) a = best_score;
+            constexpr int ASP_WINDOW = 25;
+            int alpha = -INF, beta = INF;
+            if (line == 0 && depth >= 4) {
+                alpha = prev_score - ASP_WINDOW;
+                beta = prev_score + ASP_WINDOW;
             }
-            if (root_aborted) break;
 
-            if (best_score <= alpha && alpha > -INF) { alpha = -INF; continue; }
-            if (best_score >= beta && beta < INF) { beta = INF; continue; }
-            best_move = iter_best_move;
-            break;
+            Move line_best_move = line_list.moves[0];
+            int line_best_score = -INF;
+            bool line_aborted = false;
+
+            while (true) {
+                line_best_score = -INF;
+                Move iter_best_move = line_list.moves[0];
+                int a = alpha;
+                StateInfo st;
+                for (Move m : line_list) {
+                    pos.do_move(m, st);
+                    history.push_back(pos.key());
+                    int score = -negamax(pos, depth - 1, -beta, -a, 1, total_nodes, tg, tt, tables, history);
+                    history.pop_back();
+                    pos.undo_move(m, st);
+                    if (tg.aborted) { line_aborted = true; break; }
+
+                    if (score > line_best_score) { line_best_score = score; iter_best_move = m; }
+                    if (line_best_score > a) a = line_best_score;
+                }
+                if (line_aborted) break;
+
+                if (line_best_score <= alpha && alpha > -INF) { alpha = -INF; continue; }
+                if (line_best_score >= beta && beta < INF) { beta = INF; continue; }
+                line_best_move = iter_best_move;
+                break;
+            }
+
+            if (line_aborted) { depth_aborted = true; break; }
+
+            excluded.push_back(line_best_move);
+
+            if (line == 0) {
+                result.best = line_best_move;
+                result.score = line_best_score;
+                result.depth = depth;
+                prev_best_move = line_best_move;
+                prev_score = line_best_score;
+            }
+
+            if (limits.on_iteration) {
+                long long elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start_time).count();
+                IterationInfo info;
+                info.multipv_index = line;
+                info.depth = depth;
+                info.seldepth = tables.seldepth;
+                info.score = line_best_score;
+                info.nodes = total_nodes;
+                info.time_ms = elapsed_ms;
+                info.best = line_best_move;
+                limits.on_iteration(info);
+            }
         }
 
-        if (root_aborted) break; // discard the interrupted iteration
-
-        result.best = best_move;
-        result.score = best_score;
-        result.depth = depth;
-        prev_best_move = best_move;
-        prev_score = best_score;
-
-        if (limits.on_iteration) {
-            long long elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start_time).count();
-            IterationInfo info;
-            info.multipv_index = 0;
-            info.depth = depth;
-            info.seldepth = tables.seldepth;
-            info.score = best_score;
-            info.nodes = total_nodes;
-            info.time_ms = elapsed_ms;
-            info.best = best_move;
-            limits.on_iteration(info);
-        }
+        if (depth_aborted) break;
     }
 
     result.nodes = total_nodes;

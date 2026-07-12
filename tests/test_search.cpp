@@ -2,6 +2,7 @@
 #include "search.hpp"
 #include "position.hpp"
 #include "attacks.hpp"
+#include "movegen.hpp"
 #include "tt.hpp"
 #include <atomic>
 #include <chrono>
@@ -325,4 +326,58 @@ TEST_CASE("on_iteration fires once per completed depth with sane fields") {
     }
     CHECK(seen.back().best == r.best);
     CHECK(seen.back().score == r.score);
+}
+
+TEST_CASE("multi_pv reports N distinct, non-increasing-score root lines per depth") {
+    attacks::init();
+    // A middlegame-ish position with several plausible root moves, so 3
+    // distinct lines are actually available.
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 2; lim.multi_pv = 3;
+    std::vector<IterationInfo> seen;
+    lim.on_iteration = [&seen](const IterationInfo& info) { seen.push_back(info); };
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+
+    // 2 depths * 3 lines each.
+    REQUIRE(seen.size() == 6);
+    for (int d = 0; d < 2; ++d) {
+        int base = d * 3;
+        CHECK(seen[base + 0].multipv_index == 0);
+        CHECK(seen[base + 1].multipv_index == 1);
+        CHECK(seen[base + 2].multipv_index == 2);
+        // Line 0 is the best score, non-increasing thereafter.
+        CHECK(seen[base + 0].score >= seen[base + 1].score);
+        CHECK(seen[base + 1].score >= seen[base + 2].score);
+        // Three distinct root moves.
+        CHECK(seen[base + 0].best != seen[base + 1].best);
+        CHECK(seen[base + 1].best != seen[base + 2].best);
+        CHECK(seen[base + 0].best != seen[base + 2].best);
+    }
+    // SearchResult still describes line 0's final (deepest) values.
+    CHECK(r.best == seen[3].best); // seen[3] == depth 2, line 0
+    CHECK(r.score == seen[3].score);
+}
+
+TEST_CASE("multi_pv defaulting to 1 behaves exactly like the pre-MultiPV single-line search") {
+    attacks::init();
+    Position p; p.set("4k3/8/8/8/3q4/8/8/3RK3 w - - 0 1"); // Rxd4 wins the queen
+    SearchLimits lim; lim.depth = 4;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(to_sq(r.best) == SQ_D4);
+}
+
+TEST_CASE("multi_pv larger than the number of legal moves reports only as many lines as exist") {
+    attacks::init();
+    // Few legal moves. Rook on d1 (not h-file/1st-rank-clear to h8) so black
+    // isn't left in check, which Position::set() rejects as an illegal FEN.
+    Position p; p.set("7k/8/8/8/8/8/8/K2R4 w - - 0 1");
+    MoveList legal; Position p2 = p; generate_legal(p2, legal);
+    SearchLimits lim; lim.depth = 1; lim.multi_pv = 1000;
+    int calls = 0;
+    lim.on_iteration = [&calls](const IterationInfo&) { ++calls; };
+    TranspositionTable tt(16);
+    search_best_move(p, lim, tt);
+    CHECK(calls == legal.size);
 }
