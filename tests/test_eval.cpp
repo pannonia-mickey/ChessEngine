@@ -87,3 +87,22 @@ TEST_CASE("the bishop pair is worth a bonus over a lone bishop") {
     // needed: a higher value directly means better for Black.
     CHECK(evaluate(pair) > evaluate(no_pair));
 }
+
+TEST_CASE("a rook on a fully open file outscores one blocked by its own pawn") {
+    attacks::init();
+    // Same material (K+R+P) and same rook/king squares in both; only
+    // whether the rook's own pawn sits on its file differs.
+    // Pawn on a2 (open file): PST -35 in MG
+    // Pawn on d2 (blocked rook d-file): PST -23 in MG
+    // So the pawn's own PST is 12cp WORSE on a2, meaning the rook's open-file
+    // bonus must overcome that to drive the CHECK direction.
+    // Test isolation: the rook mobility difference (7 squares * weight 2 = 14cp)
+    // combined with rook_file_bonus (20cp) and tapered PST (~1cp) should make
+    // the open position significantly better.
+    Position open;    CHECK(open.set("4k3/8/8/8/8/8/P7/3RK3 w - - 0 1") == true);    // Rd1, pawn on a2
+    Position blocked; CHECK(blocked.set("4k3/8/8/8/8/8/3P4/3RK3 w - - 0 1") == true); // Rd1, pawn on d2
+    int open_eval = evaluate(open);
+    int blocked_eval = evaluate(blocked);
+    // Expect significant bonus for open file: mobility (14cp) + rook_file_bonus (20cp)
+    CHECK(open_eval > blocked_eval);
+}

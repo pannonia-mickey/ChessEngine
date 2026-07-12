@@ -216,6 +216,33 @@ int bishop_pair(const Position& pos, Color c) {
     return popcount(pos.pieces(c, BISHOP)) >= 2 ? BISHOP_PAIR_BONUS : 0;
 }
 
+// Bonus for a rook with no pawns of its own on its file (open) or only
+// enemy pawns on its file (semi-open) - a well-known heuristic reflecting
+// the file's importance for rook activity/pressure.
+constexpr int ROOK_OPEN_FILE_BONUS = 20;
+constexpr int ROOK_SEMI_OPEN_FILE_BONUS = 10;
+
+int rook_file_bonus(const Position& pos, Color c) {
+    static constexpr Bitboard FILE_BB[8] = {
+        FILE_A_BB, FILE_B_BB, FILE_C_BB, FILE_D_BB,
+        FILE_E_BB, FILE_F_BB, FILE_G_BB, FILE_H_BB
+    };
+    Bitboard own_pawns = pos.pieces(c, PAWN);
+    Bitboard enemy_pawns = pos.pieces(Color(c ^ 1), PAWN);
+    int score = 0;
+
+    Bitboard rooks = pos.pieces(c, ROOK);
+    while (rooks) {
+        Square s = pop_lsb(rooks);
+        Bitboard file_bb = FILE_BB[file_of(s)];
+        bool has_own = file_bb & own_pawns;
+        bool has_enemy = file_bb & enemy_pawns;
+        if (!has_own && !has_enemy) score += ROOK_OPEN_FILE_BONUS;
+        else if (!has_own && has_enemy) score += ROOK_SEMI_OPEN_FILE_BONUS;
+    }
+    return score;
+}
+
 }  // namespace
 
 int evaluate(const Position& pos) {
@@ -245,7 +272,8 @@ int evaluate(const Position& pos) {
 
     int phase = game_phase(pos);
     int flat_score = mobility(pos, WHITE) - mobility(pos, BLACK)
-                    + bishop_pair(pos, WHITE) - bishop_pair(pos, BLACK);
+                    + bishop_pair(pos, WHITE) - bishop_pair(pos, BLACK)
+                    + rook_file_bonus(pos, WHITE) - rook_file_bonus(pos, BLACK);
     int score = taper(mg_score, eg_score, phase) + flat_score;
 
     // Return score from side-to-move's perspective
