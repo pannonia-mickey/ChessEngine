@@ -2,6 +2,7 @@
 #include "position.hpp"
 #include "types.hpp"
 #include "bitboard.hpp"
+#include "attacks.hpp"
 
 #include <algorithm>
 
@@ -174,6 +175,39 @@ constexpr int EG_PST[PIECE_TYPE_NB][SQUARE_NB] = {
     }
 };
 
+// Mobility bonus: attacked squares not occupied by the piece's own side,
+// weighted per piece type (knights/bishops get more weight per square
+// since they have fewer reachable squares in absolute terms than rooks/
+// queens). Pawns and kings are excluded - not a meaningful signal here.
+int mobility(const Position& pos, Color c) {
+    static constexpr int WEIGHT[PIECE_TYPE_NB] = {0, 4, 3, 2, 1, 0};
+    Bitboard occ = pos.occupied();
+    Bitboard own = pos.pieces(c);
+    int score = 0;
+
+    Bitboard knights = pos.pieces(c, KNIGHT);
+    while (knights) {
+        Square s = pop_lsb(knights);
+        score += WEIGHT[KNIGHT] * popcount(knight_attacks(s) & ~own);
+    }
+    Bitboard bishops = pos.pieces(c, BISHOP);
+    while (bishops) {
+        Square s = pop_lsb(bishops);
+        score += WEIGHT[BISHOP] * popcount(bishop_attacks(s, occ) & ~own);
+    }
+    Bitboard rooks = pos.pieces(c, ROOK);
+    while (rooks) {
+        Square s = pop_lsb(rooks);
+        score += WEIGHT[ROOK] * popcount(rook_attacks(s, occ) & ~own);
+    }
+    Bitboard queens = pos.pieces(c, QUEEN);
+    while (queens) {
+        Square s = pop_lsb(queens);
+        score += WEIGHT[QUEEN] * popcount(queen_attacks(s, occ) & ~own);
+    }
+    return score;
+}
+
 }  // namespace
 
 int evaluate(const Position& pos) {
@@ -202,7 +236,8 @@ int evaluate(const Position& pos) {
     }
 
     int phase = game_phase(pos);
-    int score = taper(mg_score, eg_score, phase);
+    int flat_score = mobility(pos, WHITE) - mobility(pos, BLACK);
+    int score = taper(mg_score, eg_score, phase) + flat_score;
 
     // Return score from side-to-move's perspective
     if (pos.side_to_move() == BLACK) {

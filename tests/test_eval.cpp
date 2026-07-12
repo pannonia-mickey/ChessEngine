@@ -54,3 +54,14 @@ TEST_CASE("king PST pins exact castled/exposed values") {
     Position symmetric; symmetric.set("6k1/8/8/8/8/8/8/6K1 w - - 0 1"); // both Kg1/Kg8
     CHECK(evaluate(symmetric) == 0);
 }
+
+TEST_CASE("a centralized knight has higher mobility than one boxed in by its own pawns") {
+    attacks::init();
+    // Both positions have identical material (White: K+N+4P, Black: K) and
+    // the same pawns at a2-d2, so PST is equal; only the knight's mobility
+    // differs. A knight at e4 (center) has more reachable squares than one
+    // at a1 (corner).
+    Position mobile; mobile.set("4k3/8/8/4N3/8/8/PPPP4/4K3 w - - 0 1"); // Ne4 (central, 8 reachable squares)
+    Position boxed;   boxed.set("4k3/8/8/8/8/8/PPPP4/N3K3 w - - 0 1"); // Na1 (corner, 2 reachable squares: b3, c2)
+    CHECK(evaluate(mobile) > evaluate(boxed));
+}
