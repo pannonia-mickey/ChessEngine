@@ -7,6 +7,8 @@
 
 namespace chess {
 
+namespace {
+
 // Game-phase weight per piece type, used to blend middlegame (MG) and
 // endgame (EG) scores. 24 = full non-pawn material (opening), 0 = bare
 // kings/pawns (deep endgame). Weights match the well-known "PeSTO"
@@ -171,6 +173,8 @@ constexpr int EG_PST[PIECE_TYPE_NB][SQUARE_NB] = {
         -53, -34, -21, -11, -28, -14, -24, -43
     }
 };
+
+}  // namespace
 
 int evaluate(const Position& pos) {
     int mg_score = 0, eg_score = 0;
