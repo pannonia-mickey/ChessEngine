@@ -134,6 +134,7 @@ TEST_CASE("extract_pv stops when the TT has no entry for the reached position") 
     std::vector<Move> pv = extract_pv(p, tt, e2e4, 5);
     REQUIRE(pv.size() == 1);
     CHECK(pv[0] == e2e4);
+    CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
 }
 
 TEST_CASE("extract_pv stops at a TT-stored move that isn't legal in the reached position") {
@@ -151,6 +152,7 @@ TEST_CASE("extract_pv stops at a TT-stored move that isn't legal in the reached 
     std::vector<Move> pv = extract_pv(p, tt, e2e4, 5);
     REQUIRE(pv.size() == 1);
     CHECK(pv[0] == e2e4);
+    CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
 }
 
 TEST_CASE("extract_pv respects max_len") {
@@ -167,4 +169,5 @@ TEST_CASE("extract_pv respects max_len") {
     std::vector<Move> pv = extract_pv(p, tt, e2e4, 1);
     REQUIRE(pv.size() == 1);
     CHECK(pv[0] == e2e4);
+    CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
 }
