@@ -92,3 +92,16 @@ TEST_CASE("option_lines advertises Hash, Ponder, and MultiPV") {
     CHECK(lines[1] == "option name Ponder type check default false");
     CHECK(lines[2] == "option name MultiPV type spin default 1 min 1 max 256");
 }
+
+TEST_CASE("parse_debug_command turns debug on") {
+    CHECK(parse_debug_command({"debug", "on"}, false) == true);
+}
+
+TEST_CASE("parse_debug_command turns debug off") {
+    CHECK(parse_debug_command({"debug", "off"}, true) == false);
+}
+
+TEST_CASE("parse_debug_command ignores a malformed command") {
+    CHECK(parse_debug_command({"debug"}, true) == true);
+    CHECK(parse_debug_command({"debug", "maybe"}, false) == false);
+}

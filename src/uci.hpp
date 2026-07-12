@@ -38,6 +38,11 @@ SetOption parse_setoption(const std::vector<std::string>& tok);
 // the order they should be printed, before "uciok".
 std::vector<std::string> option_lines();
 
+// Parse a "debug on|off" command's tokens (tok[0] == "debug") into the new
+// debug-mode state. Returns `current` unchanged on a malformed command
+// (missing or unrecognized second token).
+bool parse_debug_command(const std::vector<std::string>& tok, bool current);
+
 // Play `moves` (UCI coordinate strings) from `pos`'s current position,
 // returning the Zobrist key of every position visited, starting with
 // `pos`'s key before any move is played. Unlike uci_to_move(), `pos` is

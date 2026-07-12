@@ -114,6 +114,13 @@ std::vector<std::string> option_lines() {
     };
 }
 
+bool parse_debug_command(const std::vector<std::string>& tok, bool current) {
+    if (tok.size() < 2) return current;
+    if (tok[1] == "on") return true;
+    if (tok[1] == "off") return false;
+    return current;
+}
+
 std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<std::string>& moves) {
     std::vector<zobrist::Key> history{pos.key()};
     for (const std::string& s : moves) {
@@ -162,6 +169,8 @@ void uci_loop() {
     // of being rebuilt from scratch on every "go".
     TranspositionTable tt(16);
     int multipv_setting = 1;
+    bool debug_mode = false;
+    (void)debug_mode;
 
     // The search runs on its own thread so "stop" (read here on the main
     // thread) can actually interrupt an in-progress "go", instead of the
@@ -198,6 +207,8 @@ void uci_loop() {
             pos.set(kStartFen);
             game_history = {pos.key()};
             tt.clear();
+        } else if (cmd == "debug") {
+            debug_mode = parse_debug_command(tok, debug_mode);
         } else if (cmd == "position") {
             size_t i = 1;
             std::string fen;
