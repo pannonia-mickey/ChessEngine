@@ -321,7 +321,7 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
 
 } // namespace
 
-SearchResult search_best_move(Position& pos, const SearchLimits& limits) {
+SearchResult search_best_move(Position& pos, const SearchLimits& limits, TranspositionTable& tt) {
     SearchResult result;
 
     MoveList root_list;
@@ -345,7 +345,6 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits) {
         tg.deadline = start_time + std::chrono::milliseconds(limits.movetime_ms);
     }
 
-    TranspositionTable tt(16);
     SearchTables tables;
     Move prev_best_move = MOVE_NONE;
 
@@ -418,6 +417,12 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits) {
     }
 
     result.nodes = total_nodes;
+
+    // Store the root's result in the table for future reuse
+    if (result.best != MOVE_NONE) {
+        tt.store(pos.key(), result.depth, score_to_tt(result.score, 0), TT_EXACT, result.best);
+    }
+
     return result;
 }
 

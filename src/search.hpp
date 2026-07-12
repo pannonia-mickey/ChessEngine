@@ -10,6 +10,7 @@
 namespace chess {
 
 class Position;
+class TranspositionTable;
 
 struct SearchLimits {
     int depth = 6;
@@ -44,7 +45,12 @@ constexpr int MAX_DEPTH = 64;
 
 // Iterative-deepening negamax with alpha-beta pruning, searching from
 // depth 1 up to limits.depth (or until limits.movetime_ms elapses, if set).
-SearchResult search_best_move(Position& pos, const SearchLimits& limits);
+// `tt` is owned by the caller, not allocated here, so its contents persist
+// across calls - e.g. across moves within the same game, if the caller
+// keeps reusing the same table. Clear it explicitly
+// (TranspositionTable::clear()) when stale entries should be discarded,
+// such as on a new game.
+SearchResult search_best_move(Position& pos, const SearchLimits& limits, TranspositionTable& tt);
 
 }
 

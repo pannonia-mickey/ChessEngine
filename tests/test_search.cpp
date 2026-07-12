@@ -2,6 +2,7 @@
 #include "search.hpp"
 #include "position.hpp"
 #include "attacks.hpp"
+#include "tt.hpp"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -12,7 +13,8 @@ TEST_CASE("finds mate in one") {
     // White: Qh5, mate on f7 pattern etc. Use a clean mate-in-1.
     Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1"); // Re8#
     SearchLimits lim; lim.depth = 3;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_E1, SQ_E8));
     CHECK(r.score > 29000); // mate score
 }
@@ -21,7 +23,8 @@ TEST_CASE("captures the free queen") {
     attacks::init();
     Position p; p.set("4k3/8/8/8/3q4/8/8/3RK3 w - - 0 1"); // Rxd4 wins the queen
     SearchLimits lim; lim.depth = 4;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(to_sq(r.best) == SQ_D4);
 }
 
@@ -30,7 +33,8 @@ TEST_CASE("search respects movetime and returns a legal move") {
     Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
     SearchLimits lim; lim.depth = MAX_DEPTH; lim.movetime_ms = 100;
     auto t0 = std::chrono::steady_clock::now();
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - t0).count();
     CHECK(r.best != MOVE_NONE);   // always returns a legal move
@@ -49,7 +53,8 @@ TEST_CASE("search aborts promptly once the stop flag is set") {
         stop = true;
     });
     auto t0 = std::chrono::steady_clock::now();
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                   std::chrono::steady_clock::now() - t0).count();
     stopper.join();
@@ -64,7 +69,8 @@ TEST_CASE("avoids a losing rook-for-pawn trade only visible after a capture") {
     // Rxd5 looks like a free pawn one ply deep, but ...cxd5 wins the rook.
     Position p; p.set("4k3/8/2p5/3p4/8/8/8/3RK3 w - - 0 1");
     SearchLimits lim; lim.depth = 1;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best != make_move(SQ_D1, SQ_D5));
 }
 
@@ -81,7 +87,8 @@ TEST_CASE("finds a knight fork that only pays off after a forced check evasion")
     // developing move instead of the fork.
     Position p; p.set("4k3/5r2/8/5N2/8/8/8/K7 w - - 0 1");
     SearchLimits lim; lim.depth = 1;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_F5, SQ_D6));
 }
 
@@ -89,7 +96,8 @@ TEST_CASE("TT does not corrupt a forced mate score across more iterative-deepeni
     attacks::init();
     Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
     SearchLimits lim; lim.depth = 5;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_E1, SQ_E8));
     CHECK(r.score > 29000);
 }
@@ -98,7 +106,8 @@ TEST_CASE("TT still finds the winning capture at a deeper depth") {
     attacks::init();
     Position p; p.set("4k3/8/8/8/3q4/8/8/3RK3 w - - 0 1");
     SearchLimits lim; lim.depth = 6;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(to_sq(r.best) == SQ_D4);
 }
 
@@ -106,7 +115,8 @@ TEST_CASE("null-move pruning is disabled when the side to move has no non-pawn m
     attacks::init();
     Position p; p.set("4k3/8/4K3/4P3/8/8/8/8 b - - 0 1"); // Black: only Ke8, king moves only
     SearchLimits lim; lim.depth = 6;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK((to_sq(r.best) == SQ_D8 || to_sq(r.best) == SQ_F8));
 }
 
@@ -133,7 +143,8 @@ TEST_CASE("search claims a draw when a losing position has already repeated twic
     // (before and after one full shuffle cycle). White's only legal move
     // replays the cycle a third time.
     SearchLimits lim; lim.depth = 1; lim.history = history;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_E1, SQ_E2));
     CHECK(r.score == 0);
 }
@@ -161,7 +172,8 @@ TEST_CASE("search avoids repeating a winning position when a better move exists"
     // happened for real twice); every other legal move keeps the extra
     // queen instead, so a repetition-aware search must prefer one of those.
     SearchLimits lim; lim.depth = 1; lim.history = history;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best != make_move(SQ_E1, SQ_E2));
     CHECK(r.score > 0);
 }
@@ -171,7 +183,8 @@ TEST_CASE("fifty-move rule scores a draw once the halfmove clock reaches 100") {
     zobrist::init();
     Position p; p.set("4k3/8/8/8/8/8/8/3QK3 w - - 99 1");
     SearchLimits lim; lim.depth = 1;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.score == 0);
 }
 
@@ -180,7 +193,8 @@ TEST_CASE("fifty-move rule does not trigger one ply early") {
     zobrist::init();
     Position p; p.set("4k3/8/8/8/8/8/8/3QK3 w - - 98 1");
     SearchLimits lim; lim.depth = 1;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.score > 0);
 }
 
@@ -197,7 +211,8 @@ TEST_CASE("fifty-move rule scores a draw when the clock reaches 100 inside quies
     // still 99 when negamax hands off to quiescence).
     Position p; p.set("5b1k/6pp/3N4/8/8/8/8/6K1 w - - 98 1");
     SearchLimits lim; lim.depth = 1;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_D6, SQ_F7));
     CHECK(r.score == 0);
 }
@@ -228,7 +243,35 @@ TEST_CASE("search finds a draw by perpetual check that only repeats inside its o
     // tests exercise via pre-seeded history.
     Position p; p.set("5b1k/6np/3N4/8/8/8/8/6K1 w - - 0 1");
     SearchLimits lim; lim.depth = 6;
-    SearchResult r = search_best_move(p, lim);
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_D6, SQ_F7));
     CHECK(r.score == 0);
+}
+
+TEST_CASE("search_best_move writes into the caller-supplied transposition table") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
+    TranspositionTable tt(16);
+    CHECK(tt.probe(p.key()) == nullptr);
+    SearchLimits lim; lim.depth = 3;
+    search_best_move(p, lim, tt);
+    CHECK(tt.probe(p.key()) != nullptr); // the root's entry landed in the caller's table
+}
+
+TEST_CASE("search_best_move reuses a warm caller-supplied table to search fewer nodes") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 5;
+
+    TranspositionTable warm(16);
+    search_best_move(p, lim, warm);                       // first pass: fills the table
+    SearchResult reused = search_best_move(p, lim, warm);  // second pass: same table, same position
+
+    TranspositionTable cold(16);
+    SearchResult fresh = search_best_move(p, lim, cold);   // never-seeded table, for comparison
+
+    CHECK(reused.nodes < fresh.nodes);
 }

@@ -12,6 +12,7 @@
 #include "position.hpp"
 #include "movegen.hpp"
 #include "search.hpp"
+#include "tt.hpp"
 
 namespace chess {
 
@@ -234,7 +235,8 @@ void uci_loop() {
             stop_flag = false;
             lim.stop = &stop_flag;
             search_thread = std::thread([&pos, lim]() {
-                SearchResult r = search_best_move(pos, lim);
+                TranspositionTable tt(16);
+                SearchResult r = search_best_move(pos, lim, tt);
                 // A GUI/tournament manager (e.g. fastchess) expects at least
                 // one "info ... score ..." line before "bestmove" to know
                 // what the engine thought of the position.
