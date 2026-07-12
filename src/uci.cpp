@@ -325,6 +325,7 @@ void uci_loop() {
             lim.movetime_ms = g.movetime_ms;
             lim.nodes_limit = g.nodes_limit;
             lim.search_moves = g.search_moves;
+            lim.multi_pv = multipv_setting;
 
             // Derive a per-move budget from the clock unless movetime is explicit.
             if (!g.movetime_set && !g.infinite && (g.wtime > 0 || g.btime > 0)) {
