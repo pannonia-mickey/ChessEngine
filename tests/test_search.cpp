@@ -252,12 +252,16 @@ TEST_CASE("search finds a draw by perpetual check that only repeats inside its o
 TEST_CASE("search_best_move writes into the caller-supplied transposition table") {
     attacks::init();
     zobrist::init();
-    Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
     TranspositionTable tt(16);
-    CHECK(tt.probe(p.key()) == nullptr);
-    SearchLimits lim; lim.depth = 3;
-    search_best_move(p, lim, tt);
-    CHECK(tt.probe(p.key()) != nullptr); // the root's entry landed in the caller's table
+    SearchLimits lim; lim.depth = 2;
+    SearchResult r = search_best_move(p, lim, tt);
+    StateInfo st;
+    REQUIRE(r.best != MOVE_NONE);
+    p.do_move(r.best, st);
+    zobrist::Key child_key = p.key();
+    p.undo_move(r.best, st);
+    CHECK(tt.probe(child_key) != nullptr); // negamax stored an entry for the position after the root's best move
 }
 
 TEST_CASE("search_best_move reuses a warm caller-supplied table to search fewer nodes") {

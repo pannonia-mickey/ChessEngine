@@ -417,12 +417,6 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
     }
 
     result.nodes = total_nodes;
-
-    // Store the root's result in the table for future reuse
-    if (result.best != MOVE_NONE) {
-        tt.store(pos.key(), result.depth, score_to_tt(result.score, 0), TT_EXACT, result.best);
-    }
-
     return result;
 }
 
