@@ -25,9 +25,20 @@ class TranspositionTable {
 public:
     explicit TranspositionTable(std::size_t mb);
 
+    // Reinitialize the table from a fresh megabyte budget, discarding
+    // everything currently stored (same sizing rule as the constructor:
+    // rounded down to a power of two so probing can keep using a mask).
+    void resize(std::size_t mb);
+
     void clear();
     const TTEntry* probe(std::uint64_t key) const;
     void store(std::uint64_t key, int depth, int score, TTBound bound, Move best);
+
+    // Permille (0-1000) of occupied slots, sampled from the table's first
+    // 1000 entries (or all of it, if smaller) per the UCI "hashfull"
+    // convention - a full scan isn't needed for a representative estimate
+    // under an always-replace policy.
+    int hashfull() const;
 
 private:
     std::vector<TTEntry> table_;

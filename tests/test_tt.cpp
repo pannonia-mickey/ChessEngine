@@ -42,3 +42,26 @@ TEST_CASE("store overwrites a previous entry at the same key (always-replace)") 
     CHECK(e->score == 200);
     CHECK(e->bound == TT_UPPER);
 }
+
+TEST_CASE("resize() reinitializes the table, discarding old entries") {
+    TranspositionTable tt(1);
+    tt.store(42, 5, 123, TT_EXACT, MOVE_NONE);
+    tt.resize(2);
+    CHECK(tt.probe(42) == nullptr);
+}
+
+TEST_CASE("hashfull() is 0 on an empty table") {
+    TranspositionTable tt(1);
+    CHECK(tt.hashfull() == 0);
+}
+
+TEST_CASE("hashfull() reflects stored entries out of 1000 permille") {
+    // 1 MB / sizeof(TTEntry) rounded down to a power of two is well over
+    // 1000 entries, so keys 0..499 land at distinct indices (index == key,
+    // since each key is smaller than the table's mask) within the first
+    // 1000 slots hashfull() samples.
+    TranspositionTable tt(1);
+    for (std::uint64_t k = 0; k < 500; ++k)
+        tt.store(k, 1, 0, TT_EXACT, MOVE_NONE);
+    CHECK(tt.hashfull() == 500);
+}
