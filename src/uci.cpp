@@ -263,6 +263,19 @@ void uci_loop() {
         if (search_thread.joinable()) search_thread.join();
     };
 
+    // Pondering: "go ponder" starts an unbounded search (like "go
+    // infinite") on the position the GUI predicts will be reached, before
+    // the opponent has actually moved. "ponderhit" means the prediction was
+    // right and the GUI's clock params (stashed here from that "go ponder")
+    // now apply for real; this engine converts the still-running unbounded
+    // search into a timed one by starting a timer thread that sets
+    // stop_flag once the newly-computed budget elapses, rather than
+    // threading a mutable deadline into search_best_move.
+    bool pondering = false;
+    long long ponder_wtime = 0, ponder_btime = 0, ponder_winc = 0, ponder_binc = 0;
+    int ponder_movestogo = 0;
+    std::thread ponder_timer;
+
     std::string line;
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);
@@ -274,9 +287,15 @@ void uci_loop() {
         // Any command other than "go" needs the previous search fully
         // finished (and its bestmove printed) before touching `pos`, since
         // the search thread mutates it in place via do_move/undo_move.
+        // "ponderhit" is the one exception: it must NOT join the still-
+        // running ponder search - it converts it into a timed search in
+        // place instead (see the ponder_timer comment above).
         if (cmd == "stop" || cmd == "quit") stop_flag = true;
-        join_search();
-        if (cmd == "stop") continue;
+        if (cmd != "ponderhit") join_search();
+        if (cmd == "stop") {
+            if (ponder_timer.joinable()) ponder_timer.join();
+            continue;
+        }
 
         if (cmd == "uci") {
             std::cout << "id name ChessEngine" << std::endl;
@@ -291,6 +310,17 @@ void uci_loop() {
             tt.clear();
         } else if (cmd == "debug") {
             debug_mode = parse_debug_command(tok, debug_mode);
+        } else if (cmd == "ponderhit") {
+            if (pondering) {
+                pondering = false;
+                long long budget = compute_move_time(pos.side_to_move(), ponder_wtime, ponder_btime,
+                                                      ponder_winc, ponder_binc, ponder_movestogo);
+                if (ponder_timer.joinable()) ponder_timer.join();
+                ponder_timer = std::thread([&stop_flag, budget]() {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(budget));
+                    stop_flag = true;
+                });
+            }
         } else if (cmd == "position") {
             size_t i = 1;
             std::string fen;
@@ -346,6 +376,15 @@ void uci_loop() {
             }
             if (lim.depth > MAX_DEPTH) lim.depth = MAX_DEPTH;
 
+            if (g.ponder) {
+                pondering = true;
+                ponder_wtime = g.wtime; ponder_btime = g.btime;
+                ponder_winc = g.winc; ponder_binc = g.binc;
+                ponder_movestogo = g.movestogo;
+            } else {
+                pondering = false;
+            }
+
             lim.history = game_history;
             stop_flag = false;
             lim.stop = &stop_flag;
@@ -389,9 +428,10 @@ void uci_loop() {
     }
 
     // EOF on stdin (no explicit "quit") could otherwise leave a "go
-    // infinite" search running past the end of this function.
+    // infinite"/"go ponder" search running past the end of this function.
     stop_flag = true;
     join_search();
+    if (ponder_timer.joinable()) ponder_timer.join();
 }
 
 } // namespace chess
