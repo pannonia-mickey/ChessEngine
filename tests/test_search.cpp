@@ -279,3 +279,29 @@ TEST_CASE("search_best_move reuses a warm caller-supplied table to search fewer 
 
     CHECK(reused.nodes < fresh.nodes);
 }
+
+TEST_CASE("nodes_limit stops the search close to the requested node budget") {
+    attacks::init();
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = MAX_DEPTH; lim.nodes_limit = 5000;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best != MOVE_NONE);
+    // The 2048-node polling batch used by expired() means the search can run
+    // a bit past the requested budget, but not by more than one full batch.
+    CHECK(r.nodes < 5000 + 2048);
+}
+
+TEST_CASE("search_moves restricts the root to the given moves") {
+    attacks::init();
+    // 4k3/8/8/8/3q4/8/8/3RK3 w: Rxd4 wins the queen outright and is the
+    // engine's normal choice (see "captures the free queen" above);
+    // restrict the root to a different, clearly worse move and confirm the
+    // search picks that one instead of Rxd4.
+    Position p; p.set("4k3/8/8/8/3q4/8/8/3RK3 w - - 0 1");
+    SearchLimits lim; lim.depth = 4;
+    lim.search_moves = {make_move(SQ_E1, SQ_E2)};
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_E1, SQ_E2));
+}

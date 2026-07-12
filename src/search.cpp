@@ -121,10 +121,12 @@ struct TimeGuard {
     std::chrono::steady_clock::time_point deadline{};
     bool active = false;
     std::atomic<bool>* stop = nullptr;
+    unsigned long long nodes_limit = 0;
     bool aborted = false;
 
     bool expired(std::uint64_t nodes) {
         if (aborted) return true;
+        if (nodes_limit && nodes >= nodes_limit) { aborted = true; return true; }
         if ((nodes & 2047) == 0) {
             if (stop && stop->load(std::memory_order_relaxed)) aborted = true;
             else if (active && std::chrono::steady_clock::now() >= deadline) aborted = true;
@@ -335,11 +337,21 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
         return result;
     }
 
+    if (!limits.search_moves.empty()) {
+        MoveList filtered;
+        for (Move m : root_list)
+            if (std::find(limits.search_moves.begin(), limits.search_moves.end(), m) !=
+                limits.search_moves.end())
+                filtered.add(m);
+        if (filtered.size > 0) root_list = filtered;
+    }
+
     auto start_time = std::chrono::steady_clock::now();
     std::uint64_t total_nodes = 0;
 
     TimeGuard tg;
     tg.stop = limits.stop;
+    tg.nodes_limit = limits.nodes_limit;
     if (limits.movetime_ms > 0) {
         tg.active = true;
         tg.deadline = start_time + std::chrono::milliseconds(limits.movetime_ms);

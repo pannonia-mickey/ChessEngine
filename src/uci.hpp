@@ -61,6 +61,27 @@ std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<st
 // the reached position. `pos` is left unchanged once this function returns.
 std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len);
 
+// A parsed "go ..." command's options (tok[0] == "go"). Unset numeric
+// fields default to 0 except `depth`, which defaults to the same depth-6
+// fallback the engine has always used absent any other limit.
+struct GoOptions {
+    int depth = 6;
+    bool depth_set = false;
+    long long movetime_ms = 0;
+    bool movetime_set = false;
+    long long wtime = 0, btime = 0, winc = 0, binc = 0;
+    int movestogo = 0;
+    bool infinite = false;
+    bool ponder = false;
+    unsigned long long nodes_limit = 0;
+    std::vector<Move> search_moves;
+};
+
+// Parse a "go" command's tokens. `pos` is used only to resolve
+// "searchmoves" entries (UCI coordinate strings) against `pos`'s legal
+// moves via uci_to_move(); `pos` is left unchanged.
+GoOptions parse_go(Position& pos, const std::vector<std::string>& tok);
+
 // Derive a per-move time budget (ms) from the clock for the side to move.
 // Pure/deterministic so it can be unit-tested independently of the UCI loop.
 long long compute_move_time(Color us, long long wtime, long long btime,

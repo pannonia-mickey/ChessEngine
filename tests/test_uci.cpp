@@ -171,3 +171,58 @@ TEST_CASE("extract_pv respects max_len") {
     CHECK(pv[0] == e2e4);
     CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
 }
+
+TEST_CASE("parse_go reads depth and marks depth_set") {
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "depth", "10"});
+    CHECK(g.depth == 10);
+    CHECK(g.depth_set);
+}
+
+TEST_CASE("parse_go reads movetime and marks movetime_set") {
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "movetime", "500"});
+    CHECK(g.movetime_ms == 500);
+    CHECK(g.movetime_set);
+}
+
+TEST_CASE("parse_go reads clock and increment fields") {
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "wtime", "60000", "btime", "50000",
+                                "winc", "1000", "binc", "500", "movestogo", "20"});
+    CHECK(g.wtime == 60000);
+    CHECK(g.btime == 50000);
+    CHECK(g.winc == 1000);
+    CHECK(g.binc == 500);
+    CHECK(g.movestogo == 20);
+}
+
+TEST_CASE("parse_go reads infinite and ponder flags") {
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    CHECK(parse_go(p, {"go", "infinite"}).infinite);
+    CHECK(parse_go(p, {"go", "ponder"}).ponder);
+    CHECK_FALSE(parse_go(p, {"go", "depth", "1"}).infinite);
+}
+
+TEST_CASE("parse_go reads a nodes limit") {
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "nodes", "50000"});
+    CHECK(g.nodes_limit == 50000);
+}
+
+TEST_CASE("parse_go resolves searchmoves to legal Move values and keeps parsing after them") {
+    attacks::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "searchmoves", "e2e4", "d2d4", "wtime", "1000"});
+    REQUIRE(g.search_moves.size() == 2);
+    CHECK(g.search_moves[0] == make_move(SQ_E2, SQ_E4));
+    CHECK(g.search_moves[1] == make_move(SQ_D2, SQ_D4));
+    CHECK(g.wtime == 1000);
+}
+
+TEST_CASE("parse_go stops searchmoves at the first token that isn't a legal move") {
+    attacks::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    GoOptions g = parse_go(p, {"go", "searchmoves", "e2e4", "bogus"});
+    CHECK(g.search_moves.size() == 1);
+}

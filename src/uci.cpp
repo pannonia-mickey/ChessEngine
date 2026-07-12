@@ -157,6 +157,45 @@ std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move f
     return pv;
 }
 
+GoOptions parse_go(Position& pos, const std::vector<std::string>& tok) {
+    GoOptions g;
+    for (std::size_t i = 1; i < tok.size(); ++i) {
+        if (tok[i] == "depth" && i + 1 < tok.size()) {
+            try { g.depth = std::stoi(tok[++i]); g.depth_set = true; }
+            catch (const std::exception&) {}
+        } else if (tok[i] == "movetime" && i + 1 < tok.size()) {
+            try { g.movetime_ms = std::stoll(tok[++i]); g.movetime_set = true; }
+            catch (const std::exception&) {}
+        } else if (tok[i] == "wtime" && i + 1 < tok.size()) {
+            try { g.wtime = std::stoll(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "btime" && i + 1 < tok.size()) {
+            try { g.btime = std::stoll(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "winc" && i + 1 < tok.size()) {
+            try { g.winc = std::stoll(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "binc" && i + 1 < tok.size()) {
+            try { g.binc = std::stoll(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "movestogo" && i + 1 < tok.size()) {
+            try { g.movestogo = std::stoi(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "nodes" && i + 1 < tok.size()) {
+            try { g.nodes_limit = std::stoull(tok[++i]); } catch (const std::exception&) {}
+        } else if (tok[i] == "infinite") {
+            g.infinite = true;
+        } else if (tok[i] == "ponder") {
+            g.ponder = true;
+        } else if (tok[i] == "searchmoves") {
+            ++i;
+            while (i < tok.size()) {
+                Move m = uci_to_move(pos, tok[i]);
+                if (m == MOVE_NONE) break;
+                g.search_moves.push_back(m);
+                ++i;
+            }
+            --i; // compensate the outer loop's ++i
+        }
+    }
+    return g;
+}
+
 std::string format_score(int score) {
     if (score >= MATE - MAX_DEPTH) {
         int moves = (MATE - score + 1) / 2;
@@ -261,44 +300,27 @@ void uci_loop() {
             }
             game_history = build_game_history(pos, uci_moves);
         } else if (cmd == "go") {
+            GoOptions g = parse_go(pos, tok);
             SearchLimits lim;
-            long long wtime = 0, btime = 0, winc = 0, binc = 0;
-            int movestogo = 0;
-            bool depth_set = false, movetime_set = false, infinite = false;
-            for (size_t i = 1; i < tok.size(); ++i) {
-                if (tok[i] == "depth" && i + 1 < tok.size()) {
-                    try { lim.depth = std::stoi(tok[++i]); depth_set = true; }
-                    catch (const std::exception&) {}
-                } else if (tok[i] == "movetime" && i + 1 < tok.size()) {
-                    try { lim.movetime_ms = std::stoll(tok[++i]); movetime_set = true; }
-                    catch (const std::exception&) {}
-                } else if (tok[i] == "wtime" && i + 1 < tok.size()) {
-                    try { wtime = std::stoll(tok[++i]); } catch (const std::exception&) {}
-                } else if (tok[i] == "btime" && i + 1 < tok.size()) {
-                    try { btime = std::stoll(tok[++i]); } catch (const std::exception&) {}
-                } else if (tok[i] == "winc" && i + 1 < tok.size()) {
-                    try { winc = std::stoll(tok[++i]); } catch (const std::exception&) {}
-                } else if (tok[i] == "binc" && i + 1 < tok.size()) {
-                    try { binc = std::stoll(tok[++i]); } catch (const std::exception&) {}
-                } else if (tok[i] == "movestogo" && i + 1 < tok.size()) {
-                    try { movestogo = std::stoi(tok[++i]); } catch (const std::exception&) {}
-                } else if (tok[i] == "infinite") {
-                    infinite = true;
-                }
-            }
+            lim.depth = g.depth;
+            lim.movetime_ms = g.movetime_ms;
+            lim.nodes_limit = g.nodes_limit;
+            lim.search_moves = g.search_moves;
+
             // Derive a per-move budget from the clock unless movetime is explicit.
-            if (!movetime_set && !infinite && (wtime > 0 || btime > 0)) {
-                lim.movetime_ms = compute_move_time(pos.side_to_move(), wtime, btime,
-                                                    winc, binc, movestogo);
+            if (!g.movetime_set && !g.infinite && (g.wtime > 0 || g.btime > 0)) {
+                lim.movetime_ms = compute_move_time(pos.side_to_move(), g.wtime, g.btime,
+                                                    g.winc, g.binc, g.movestogo);
             }
-            // When time governs the search, let iterative deepening run deep
-            // and stop on the clock instead of the default fixed depth.
-            if (!depth_set && lim.movetime_ms > 0) {
+            // When time or nodes governs the search, let iterative deepening
+            // run deep and stop on that limit instead of the default fixed
+            // depth.
+            if (!g.depth_set && (lim.movetime_ms > 0 || lim.nodes_limit > 0)) {
                 lim.depth = MAX_DEPTH;
             }
-            // "go infinite": search until "stop", ignoring any clock/depth
-            // budget derived above.
-            if (infinite) {
+            // "go infinite"/"go ponder": search until "stop"/"ponderhit",
+            // ignoring any clock/depth budget derived above.
+            if (g.infinite || g.ponder) {
                 lim.depth = MAX_DEPTH;
                 lim.movetime_ms = 0;
             }

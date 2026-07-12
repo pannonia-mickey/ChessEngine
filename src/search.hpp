@@ -25,6 +25,15 @@ struct SearchLimits {
     // real game history, not just ones found within the search tree. Left
     // empty, the search still finds repeats made entirely of its own moves.
     std::vector<zobrist::Key> history;
+    // Total node budget (negamax + quiescence combined) for the whole
+    // search, checked at the same cadence as the movetime deadline. 0 means
+    // unlimited (UCI "go nodes <N>").
+    unsigned long long nodes_limit = 0;
+    // Restrict the root to these moves only (UCI "go searchmoves ..."). An
+    // empty vector (the default) means "search every legal root move" - and
+    // so does a non-empty vector that matches none of them, as a defensive
+    // fallback against a GUI listing moves that turned out illegal.
+    std::vector<Move> search_moves;
 };
 
 struct SearchResult {
