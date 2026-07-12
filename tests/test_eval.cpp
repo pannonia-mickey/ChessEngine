@@ -57,11 +57,17 @@ TEST_CASE("king PST pins exact castled/exposed values") {
 
 TEST_CASE("a centralized knight has higher mobility than one boxed in by its own pawns") {
     attacks::init();
-    // Both positions have identical material (White: K+N+4P, Black: K) and
-    // the same pawns at a2-d2, so PST is equal; only the knight's mobility
-    // differs. A knight at e4 (center) has more reachable squares than one
-    // at a1 (corner).
-    Position mobile; mobile.set("4k3/8/8/4N3/8/8/PPPP4/4K3 w - - 0 1"); // Ne4 (central, 8 reachable squares)
-    Position boxed;   boxed.set("4k3/8/8/8/8/8/PPPP4/N3K3 w - - 0 1"); // Na1 (corner, 2 reachable squares: b3, c2)
+    // The knight sits on the *same* square (c5) in both positions, and both
+    // have identical material (White: K+N+4P, Black: K), so the knight's own
+    // PST contribution and all material values cancel exactly; only the
+    // knight's mobility differs. A knight on c5 attacks a4, a6, b3, b7, d3,
+    // d7, e4, e6 (8 squares).
+    Position mobile; mobile.set("4k3/8/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
+    // White pawns on a2, c2, f2, h2 - none of these are among the knight's
+    // eight attack squares, so all 8 stay reachable (mobility = 8).
+    Position boxed; boxed.set("4k3/8/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
+    // White pawns on a4, b3, d3, e4 - exactly four of the knight's own
+    // attack squares, occupied by its own color so they don't count as
+    // mobility, leaving only a6, b7, d7, e6 reachable (mobility = 4).
     CHECK(evaluate(mobile) > evaluate(boxed));
 }
