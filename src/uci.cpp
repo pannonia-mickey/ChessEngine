@@ -127,6 +127,11 @@ void uci_loop() {
     pos.set(kStartFen);
     std::vector<zobrist::Key> game_history{pos.key()};
 
+    // Owned here, not inside search_best_move, so its contents (and the
+    // allocation itself) persist across moves within the same game instead
+    // of being rebuilt from scratch on every "go".
+    TranspositionTable tt(16);
+
     // The search runs on its own thread so "stop" (read here on the main
     // thread) can actually interrupt an in-progress "go", instead of the
     // engine being stuck until search_best_move() returns on its own.
@@ -160,6 +165,7 @@ void uci_loop() {
         } else if (cmd == "ucinewgame") {
             pos.set(kStartFen);
             game_history = {pos.key()};
+            tt.clear();
         } else if (cmd == "position") {
             size_t i = 1;
             std::string fen;
@@ -234,8 +240,7 @@ void uci_loop() {
             lim.history = game_history;
             stop_flag = false;
             lim.stop = &stop_flag;
-            search_thread = std::thread([&pos, lim]() {
-                TranspositionTable tt(16);
+            search_thread = std::thread([&pos, &tt, lim]() {
                 SearchResult r = search_best_move(pos, lim, tt);
                 // A GUI/tournament manager (e.g. fastchess) expects at least
                 // one "info ... score ..." line before "bestmove" to know
