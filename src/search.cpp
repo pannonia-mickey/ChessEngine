@@ -88,6 +88,7 @@ int mvv_lva_score(const Position& pos, Move m) {
 struct SearchTables {
     Move killers[MAX_DEPTH + 1][2] = {};
     int history[COLOR_NB][SQUARE_NB][SQUARE_NB] = {};
+    int seldepth = 0;
 };
 
 constexpr int PV_SCORE = 2'000'000;
@@ -149,9 +150,10 @@ constexpr int MAX_CHECK_EXT = 16;
 // calling this). `check_ext` counts consecutive check-evasion extensions
 // leading to this call (see MAX_CHECK_EXT).
 int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
-               std::uint64_t& nodes, TimeGuard& tg, const SearchTables& tables,
+               std::uint64_t& nodes, TimeGuard& tg, SearchTables& tables,
                std::vector<zobrist::Key>& history, int check_ext = 0) {
     ++nodes;
+    if (ply > tables.seldepth) tables.seldepth = ply;
     if (tg.expired(nodes)) return alpha;
 
     if (pos.halfmove() >= 100 || is_repetition(history, pos.halfmove(), ply))
@@ -208,6 +210,7 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
             std::uint64_t& nodes, TimeGuard& tg, TranspositionTable& tt,
             SearchTables& tables, std::vector<zobrist::Key>& history) {
     ++nodes;
+    if (ply > tables.seldepth) tables.seldepth = ply;
     if (tg.expired(nodes)) return 0; // value discarded once aborted
 
     MoveList list;
@@ -378,6 +381,7 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
             break;
 
         order_moves(pos, root_list, prev_best_move, 0, tables);
+        tables.seldepth = 0;
 
         // Aspiration window: guess the score won't move far from the last
         // iteration's, so a narrow window prunes more at the root. On
@@ -426,6 +430,20 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
         result.depth = depth;
         prev_best_move = best_move;
         prev_score = best_score;
+
+        if (limits.on_iteration) {
+            long long elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_time).count();
+            IterationInfo info;
+            info.multipv_index = 0;
+            info.depth = depth;
+            info.seldepth = tables.seldepth;
+            info.score = best_score;
+            info.nodes = total_nodes;
+            info.time_ms = elapsed_ms;
+            info.best = best_move;
+            limits.on_iteration(info);
+        }
     }
 
     result.nodes = total_nodes;

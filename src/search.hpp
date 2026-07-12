@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <vector>
 #include "move.hpp"
 #include "zobrist.hpp"
@@ -11,6 +12,7 @@ namespace chess {
 
 class Position;
 class TranspositionTable;
+struct IterationInfo;
 
 struct SearchLimits {
     int depth = 6;
@@ -34,6 +36,10 @@ struct SearchLimits {
     // so does a non-empty vector that matches none of them, as a defensive
     // fallback against a GUI listing moves that turned out illegal.
     std::vector<Move> search_moves;
+    // Called once per completed iterative-deepening depth (see
+    // IterationInfo). Left null (the default), the search doesn't report
+    // progress at all - only the final SearchResult.
+    std::function<void(const IterationInfo&)> on_iteration = nullptr;
 };
 
 struct SearchResult {
@@ -41,6 +47,22 @@ struct SearchResult {
     int score = 0;
     std::uint64_t nodes = 0;
     int depth = 0;
+};
+
+// Reported once per completed (non-aborted) iterative-deepening depth, so a
+// caller (typically UCI's "go" handler) can print progress without
+// search.cpp knowing anything about console I/O or move-string formatting.
+// `multipv_index` is 0 for the best line; a caller requesting multiple
+// principal variations (SearchLimits::multi_pv > 1, see the MultiPV search
+// task) sees this fire once per reported line, in ascending index order.
+struct IterationInfo {
+    int multipv_index = 0;
+    int depth = 0;
+    int seldepth = 0;
+    int score = 0;
+    std::uint64_t nodes = 0;
+    long long time_ms = 0;
+    Move best = MOVE_NONE;
 };
 
 // Mate score: a checkmate found `ply` plies from the root scores as

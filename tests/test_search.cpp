@@ -305,3 +305,24 @@ TEST_CASE("search_moves restricts the root to the given moves") {
     SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_E1, SQ_E2));
 }
+
+TEST_CASE("on_iteration fires once per completed depth with sane fields") {
+    attacks::init();
+    zobrist::init();
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 3;
+    std::vector<IterationInfo> seen;
+    lim.on_iteration = [&seen](const IterationInfo& info) { seen.push_back(info); };
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+
+    REQUIRE(seen.size() == 3); // one call per depth 1..3
+    for (std::size_t i = 0; i < seen.size(); ++i) {
+        CHECK(seen[i].depth == static_cast<int>(i) + 1);
+        CHECK(seen[i].seldepth >= seen[i].depth);
+        CHECK(seen[i].multipv_index == 0);
+        CHECK(seen[i].best != MOVE_NONE);
+    }
+    CHECK(seen.back().best == r.best);
+    CHECK(seen.back().score == r.score);
+}
