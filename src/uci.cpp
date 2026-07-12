@@ -1,5 +1,6 @@
 #include "uci.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <iostream>
@@ -254,6 +255,17 @@ void uci_loop() {
     int multipv_setting = 1;
     bool debug_mode = false;
     (void)debug_mode;
+    // Set inside on_iteration (below) once at least one completed depth has
+    // been reported for the current "go". If the search aborts before depth
+    // 1 finishes (e.g. "go movetime 1", a tiny node limit, or an external
+    // "stop" landing within depth 1), on_iteration never fires - without
+    // this, only "bestmove" would be printed, and a tournament manager
+    // (fastchess) expects at least one "info" line to know what the engine
+    // thought of the position. Declared here (not inside the "go" branch)
+    // because search_thread's lambda - which reads it after the branch's
+    // own scope has exited - captures it by reference, so it must outlive
+    // the branch.
+    bool info_printed = false;
 
     // The search runs on its own thread so "stop" (read here on the main
     // thread) can actually interrupt an in-progress "go", instead of the
@@ -418,18 +430,33 @@ void uci_loop() {
 
             lim.history = game_history;
             stop_flag = false;
+            info_printed = false;
             lim.stop = &stop_flag;
             // Reported per completed depth from inside search_best_move()
             // (running on search_thread), so a GUI sees progress instead of
             // one info line at the very end. Safe to touch `pos`/`tt` here:
             // the search thread only calls back between root moves, when
             // both are back at the search's root state.
-            lim.on_iteration = [&pos, &tt](const IterationInfo& info) {
+            lim.on_iteration = [&pos, &tt, &info_printed](const IterationInfo& info) {
                 std::vector<Move> pv = extract_pv(pos, tt, info.best, info.depth);
                 std::cout << format_info_line(info, pv, tt.hashfull()) << std::endl;
+                info_printed = true;
             };
-            search_thread = std::thread([&pos, &tt, lim]() {
+            search_thread = std::thread([&pos, &tt, &info_printed, lim]() {
                 SearchResult r = search_best_move(pos, lim, tt);
+                if (!info_printed) {
+                    // The search aborted before any iteration completed -
+                    // synthesize a single info line from the final result so
+                    // at least one is always printed before "bestmove".
+                    IterationInfo info;
+                    info.depth = r.depth;
+                    info.score = r.score;
+                    info.nodes = r.nodes;
+                    info.best = r.best;
+                    std::vector<Move> pv;
+                    if (r.best != MOVE_NONE) pv = extract_pv(pos, tt, r.best, 1);
+                    std::cout << format_info_line(info, pv, tt.hashfull()) << std::endl;
+                }
                 if (r.best == MOVE_NONE) {
                     std::cout << "bestmove (none)" << std::endl;
                 } else {
@@ -441,12 +468,12 @@ void uci_loop() {
             if (opt.name == "Hash") {
                 try {
                     long mb = std::stol(opt.value);
-                    if (mb >= 1) tt.resize(static_cast<std::size_t>(mb));
+                    if (mb >= 1) tt.resize(static_cast<std::size_t>(std::min(mb, 1024L)));
                 } catch (const std::exception&) {}
             } else if (opt.name == "MultiPV") {
                 try {
                     int v = std::stoi(opt.value);
-                    if (v >= 1) multipv_setting = v;
+                    if (v >= 1) multipv_setting = std::min(v, 256);
                 } catch (const std::exception&) {}
             }
             // "Ponder" and any other option name are accepted and ignored:
