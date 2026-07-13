@@ -3,6 +3,10 @@
 namespace chess {
 enum Color : int { WHITE, BLACK, COLOR_NB = 2 };
 enum PieceType : int { PAWN, KNIGHT, BISHOP, ROOK, QUEEN, KING, PIECE_TYPE_NB = 6, NO_PIECE_TYPE = 6 };
+// Material values in centipawns, used by move-ordering heuristics
+// (MVV-LVA, SEE) that need a quick per-piece-type value - not eval.cpp's
+// tapered MG/EG material tables, which serve position scoring instead.
+constexpr int PIECE_VALUE[PIECE_TYPE_NB] = {100, 320, 330, 500, 900, 20000};
 enum Piece : int { W_PAWN, W_KNIGHT, W_BISHOP, W_ROOK, W_QUEEN, W_KING,
                    B_PAWN = 8, B_KNIGHT, B_BISHOP, B_ROOK, B_QUEEN, B_KING,
                    NO_PIECE = 16, PIECE_NB = 16 };

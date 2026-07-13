@@ -69,3 +69,32 @@ TEST_CASE("SEE: en passant capture uses the actual captured pawn's square") {
     Position p; CHECK(p.set("7k/8/8/3pP3/8/8/K7/3r4 w - d6 0 1"));
     CHECK(see(p, make_move(SQ_E5, SQ_D6, EN_PASSANT)) == 0);
 }
+
+TEST_CASE("SEE: recaptures with the least valuable attacker, not just any attacker") {
+    attacks::init();
+    // White pawn e4 takes the knight on d5 (+320). Black has two possible
+    // recapturing pieces on d5: the pawn on c6 (100) and the queen on d8
+    // (900, via the d-file) - a correct implementation always continues
+    // with the *cheaper* one available (the pawn), not just any attacker.
+    // After Black recaptures with the pawn, White's rook on d1 could take
+    // that pawn (+100), but Black's queen would then win the rook for
+    // free (+500 for Black) with nothing further to punish it - a bad
+    // continuation White correctly declines. Net: White wins the knight
+    // and loses only the initiating pawn: 320 - 100 = 220.
+    Position p; CHECK(p.set("3q3k/8/2p5/3n4/4P3/8/K7/3R4 w - - 0 1"));
+    CHECK(see(p, make_move(SQ_E4, SQ_D5)) == 220);
+}
+
+TEST_CASE("SEE: a winning multi-round exchange nets the full accumulated gain") {
+    attacks::init();
+    // White knight f4 takes the bishop on d5 (+330). Black's knight on b6
+    // recaptures (Black regains 320, matching White's knight now sitting
+    // on d5). White's queen on d1 then captures that knight (+320 more)
+    // with no further Black attacker left to punish it, so continuing is
+    // pure profit and the algorithm correctly does not decline. Net:
+    // 330 (bishop) - 320 (White's knight, recaptured) + 320 (Black's
+    // knight, captured by the queen) = 330 - a genuine multi-ply gain,
+    // not just a single free capture.
+    Position p; CHECK(p.set("7k/8/1n6/3b4/5N2/8/8/K2Q4 w - - 0 1"));
+    CHECK(see(p, make_move(SQ_F4, SQ_D5)) == 330);
+}

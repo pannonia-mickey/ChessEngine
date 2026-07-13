@@ -11,8 +11,6 @@ namespace chess {
 
 namespace {
 
-constexpr int VALUE[PIECE_TYPE_NB] = {100, 320, 330, 500, 900, 20000};
-
 // Every piece of either color that attacks `sq`, given custom occupancy
 // `occ` (not necessarily pos.occupied() - the caller may have removed
 // pieces to simulate a capture sequence). Sliding-piece attacks are
@@ -54,7 +52,7 @@ int exchange(const Position& pos, Bitboard occ, Color side, Square sq, int captu
     }
 
     Bitboard next_occ = occ & ~square_bb(attacker_sq);
-    int gain = captured_value - exchange(pos, next_occ, Color(side ^ 1), sq, VALUE[attacker_type]);
+    int gain = captured_value - exchange(pos, next_occ, Color(side ^ 1), sq, PIECE_VALUE[attacker_type]);
     return std::max(0, gain);
 }
 
@@ -70,16 +68,16 @@ int see(const Position& pos, Move m) {
 
     int captured_value;
     if (mf == EN_PASSANT) {
-        captured_value = VALUE[PAWN];
+        captured_value = PIECE_VALUE[PAWN];
         Square captured_sq = make_square(file_of(to), rank_of(from));
         occ &= ~square_bb(captured_sq);
     } else {
-        captured_value = VALUE[type_of(pos.piece_on(to))];
+        captured_value = PIECE_VALUE[type_of(pos.piece_on(to))];
     }
 
     PieceType attacker_type = type_of(pos.piece_on(from));
     Color side = Color(pos.side_to_move() ^ 1);
-    return captured_value - exchange(pos, occ, side, to, VALUE[attacker_type]);
+    return captured_value - exchange(pos, occ, side, to, PIECE_VALUE[attacker_type]);
 }
 
 } // namespace chess

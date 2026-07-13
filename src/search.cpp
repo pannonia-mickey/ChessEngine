@@ -5,9 +5,9 @@
 #include <vector>
 
 #include "eval.hpp"
-#include "see.hpp"
 #include "movegen.hpp"
 #include "position.hpp"
+#include "see.hpp"
 #include "tt.hpp"
 
 namespace chess {
@@ -70,12 +70,11 @@ bool is_repetition(const std::vector<zobrist::Key>& history, int halfmove, int p
 // attacker is better). Used only to make alpha-beta cutoffs more effective;
 // not a correctness requirement.
 int mvv_lva_score(const Position& pos, Move m) {
-    static constexpr int value[PIECE_TYPE_NB] = {100, 320, 330, 500, 900, 20000};
     if (!is_capture(pos, m)) return -1;
     Piece captured = pos.piece_on(to_sq(m));
-    if (captured == NO_PIECE) return value[PAWN] * 10 - value[PAWN]; // en passant
+    if (captured == NO_PIECE) return PIECE_VALUE[PAWN] * 10 - PIECE_VALUE[PAWN]; // en passant
     Piece attacker = pos.piece_on(from_sq(m));
-    return value[type_of(captured)] * 10 - value[type_of(attacker)];
+    return PIECE_VALUE[type_of(captured)] * 10 - PIECE_VALUE[type_of(attacker)];
 }
 
 // Mutable move-ordering state for one search_best_move() call. Killers are
