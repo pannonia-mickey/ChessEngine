@@ -40,3 +40,16 @@ TEST_CASE("SEE: declines a further capture that would lose material (stops the e
     Position p; CHECK(p.set("4r2k/8/2n5/4p3/3P4/8/8/K3Q3 w - - 0 1"));
     CHECK(see(p, make_move(SQ_D4, SQ_E5)) == 0);
 }
+
+TEST_CASE("SEE: reveals an x-ray attacker behind a captured piece") {
+    attacks::init();
+    // White rook d3 takes the knight on d5 (+320). Black's pawn on c6
+    // recaptures the rook (+500 for Black). White's second rook on d1,
+    // previously blocked by the d3 rook, is now unblocked and recaptures
+    // the pawn (+100 for White). Net for White: 320 - 500 + 100 = -80.
+    // An implementation that fails to re-reveal the d1 rook after d3 is
+    // removed would instead stop after Black's recapture and return
+    // -180, so this distinguishes a working x-ray from a broken one.
+    Position p; CHECK(p.set("7k/8/2p5/3n4/8/3R4/8/K2R4 w - - 0 1"));
+    CHECK(see(p, make_move(SQ_D3, SQ_D5)) == -80);
+}
