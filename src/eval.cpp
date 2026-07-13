@@ -277,6 +277,29 @@ void passed_pawn_bonus(const Position& pos, Color c, int& mg, int& eg) {
     }
 }
 
+// Bonus per own pawn found on the two ranks directly in front of the king,
+// across the king's file and the two adjacent files (clamped at the board
+// edge). MG-only: king safety stops being relevant once enough material
+// has been traded off that there's nothing left to attack the king with.
+constexpr int KING_SHIELD_BONUS = 10;
+
+int king_safety(const Position& pos, Color c) {
+    Square ks = pos.king_square(c);
+    int kf = file_of(ks), kr = rank_of(ks);
+    Bitboard own_pawns = pos.pieces(c, PAWN);
+    int dir = (c == WHITE) ? 1 : -1;
+    int shield = 0;
+
+    for (int f = std::max(0, kf - 1); f <= std::min(7, kf + 1); ++f) {
+        for (int dr = 1; dr <= 2; ++dr) {
+            int r = kr + dir * dr;
+            if (r < 0 || r > 7) continue;
+            if (own_pawns & square_bb(make_square(f, r))) shield += KING_SHIELD_BONUS;
+        }
+    }
+    return shield;
+}
+
 }  // namespace
 
 int evaluate(const Position& pos) {
@@ -309,6 +332,7 @@ int evaluate(const Position& pos) {
     passed_pawn_bonus(pos, BLACK, pp_mg_b, pp_eg_b);
     mg_score += pp_mg_w - pp_mg_b;
     eg_score += pp_eg_w - pp_eg_b;
+    mg_score += king_safety(pos, WHITE) - king_safety(pos, BLACK);
 
     int phase = game_phase(pos);
     int flat_score = mobility(pos, WHITE) - mobility(pos, BLACK)
