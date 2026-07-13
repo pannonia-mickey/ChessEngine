@@ -58,23 +58,57 @@ TEST_CASE("king PST pins exact castled/exposed values") {
 TEST_CASE("a centralized knight has higher mobility than one boxed in by its own pawns") {
     attacks::init();
     // The knight sits on the *same* square (c5) in both positions. Black's
-    // four pawns sit on the SAME squares (b7, d7, f7, h7) in BOTH positions,
-    // so Black's PST/material contribution cancels exactly between the two
-    // evaluate() calls. The b/d/f/h files are chosen so that every White
-    // pawn in both configurations (a2,c2,f2,h2 in "mobile"; a4,b3,d3,e4 in
-    // "boxed") has a Black pawn on its own file or an adjacent file, keeping
-    // all White pawns non-passed in both positions. What remains is White's
-    // own pawn-PST difference plus the knight's mobility difference. A
-    // knight on c5 attacks a4, a6, b3, b7, d3, d7, e4, e6 (8 squares).
-    Position mobile; mobile.set("4k3/1p1p1p1p/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
-    // White pawns on a2, c2, f2, h2; Black pawns on b7, d7, f7, h7. None of
-    // the White pawns are among the knight's eight attack squares, so all 8
-    // stay reachable (mobility = 8).
-    Position boxed; boxed.set("4k3/1p1p1p1p/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
-    // White pawns on a4, b3, d3, e4; Black pawns on b7, d7, f7, h7 (same
-    // squares as in "mobile", so they cancel exactly). The four White pawns
-    // occupy exactly four of the knight's eight attack squares (a4, b3, d3,
-    // e4), leaving only a6, b7, d7, e6 reachable (mobility = 4).
+    // three pawns sit on the SAME squares (b7, d7, f7) in BOTH positions, so
+    // Black's PST/material contribution cancels exactly between the two
+    // evaluate() calls.
+    //
+    // All pawns (White's in both configs, and Black's) are confined to the
+    // a-f files, deliberately avoiding g/h entirely. This closes a prior gap
+    // where "boxed"'s White pawns (a4,b3,d3,e4) only cover files a-f via
+    // adjacency, so a Black pawn on g/h could stand as an unblocked passed
+    // pawn in "boxed" while being blocked in "mobile" by a White h-file pawn
+    // - an asymmetric passed-pawn bonus that could make the CHECK below pass
+    // even with mobility() deleted entirely. With every pawn kept within
+    // a-f, each White pawn (in both "mobile" and "boxed") sits on the same
+    // file or an adjacent file as one of Black's fixed pawns (b/d/f), and
+    // vice versa, so no pawn - White or Black, in either config - is passed
+    // (verified below by construction; no CHECK asserts it directly since
+    // is_passed_pawn() is a private eval.cpp detail, not part of the public
+    // API this test file includes).
+    //
+    // Confining files alone isn't sufficient, though: "mobile"'s White pawns
+    // must also avoid the knight's eight attack squares (a4, a6, b3, b7, d3,
+    // d7, e4, e6) to keep its mobility at 8, and merely picking "any" legal
+    // rank for those pawns leaves a second, subtler asymmetry - the pawn PST
+    // (MG and EG) value of a back-rank vs. a mid-board pawn differs by file
+    // and rank in ways unrelated to mobility, and with only one minor piece
+    // on the board game_phase() is just 1/24, so the endgame table (EG_PST)
+    // dominates the taper almost entirely. Verified empirically (temporarily
+    // zeroing mobility()'s WEIGHT array and rebuilding): an earlier version
+    // of this test that put all four "mobile" pawns on rank 2 left a pure
+    // PST edge in favor of "mobile" worth +15cp even with mobility() zeroed
+    // out - i.e. the CHECK below would still pass with no mobility signal at
+    // all. The ranks chosen below (b4, c4, d2, f4) were picked empirically so
+    // that the PST/taper contribution alone very slightly favors "boxed"
+    // (confirmed: with mobility zeroed, evaluate(boxed) > evaluate(mobile),
+    // 393 > 388), so the real CHECK below only passes because mobility()
+    // contributes its +16 (4 * (8 - 4)) swing in "mobile"'s favor (real
+    // values: evaluate(mobile) = 420, evaluate(boxed) = 409). A knight on c5
+    // attacks a4, a6, b3, b7, d3, d7, e4, e6 (8 squares).
+    Position mobile; mobile.set("4k3/1p1p1p2/8/2N5/1PP2P2/8/3P4/4K3 w - - 0 1");
+    // White pawns on b4, c4, f4, d2; Black pawns on b7, d7, f7. None of the
+    // White pawns are among the knight's eight attack squares, so all 8
+    // stay reachable (mobility = 8). Every White pawn file (b,c,d,f) is on
+    // or adjacent to a Black pawn file (b,d,f), and vice versa, so no pawn
+    // is passed. (b4/c4/f4/d2, rather than all-rank-2 or all-rank-4, is what
+    // gives the PST/taper term its slight tilt toward "boxed" - see above.)
+    Position boxed; boxed.set("4k3/1p1p1p2/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
+    // White pawns on a4, b3, d3, e4; Black pawns on b7, d7, f7 (same squares
+    // as in "mobile", so they cancel exactly). The four White pawns occupy
+    // exactly four of the knight's eight attack squares (a4, b3, d3, e4),
+    // leaving only a6, b7, d7, e6 reachable (mobility = 4). Every White pawn
+    // file (a,b,d,e) is on or adjacent to a Black pawn file (b,d,f), and
+    // vice versa, so no pawn is passed here either.
     CHECK(evaluate(mobile) > evaluate(boxed));
 }
 
