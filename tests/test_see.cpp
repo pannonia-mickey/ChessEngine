@@ -53,3 +53,12 @@ TEST_CASE("SEE: reveals an x-ray attacker behind a captured piece") {
     Position p; CHECK(p.set("7k/8/2p5/3n4/8/3R4/8/K2R4 w - - 0 1"));
     CHECK(see(p, make_move(SQ_D3, SQ_D5)) == -80);
 }
+
+TEST_CASE("SEE: en passant capture uses the actual captured pawn's square") {
+    attacks::init();
+    // White pawn e5 captures en passant onto d6, removing Black's pawn
+    // actually sitting on d5 (not on d6). No other piece attacks d6, so
+    // the result is simply the captured pawn's value.
+    Position p; CHECK(p.set("7k/8/8/3pP3/8/8/8/K7 w - d6 0 1"));
+    CHECK(see(p, make_move(SQ_E5, SQ_D6, EN_PASSANT)) == 100);
+}
