@@ -28,6 +28,7 @@ set(ENGINE_SOURCES
   src/zobrist.cpp
   src/tt.cpp
   src/uci.cpp
+  src/see.cpp
 )
 
 find_package(Threads REQUIRED)
@@ -52,7 +53,7 @@ if(CHESS_BUILD_TESTS)
   unset(CMAKE_POLICY_VERSION_MINIMUM)
 
   enable_testing()
-  add_executable(chess_tests tests/test_main.cpp tests/test_types.cpp tests/test_bitboard.cpp tests/test_attacks.cpp tests/test_position.cpp tests/test_movegen.cpp tests/test_perft.cpp tests/test_eval.cpp tests/test_search.cpp tests/test_zobrist.cpp tests/test_tt.cpp tests/test_uci.cpp)
+  add_executable(chess_tests tests/test_main.cpp tests/test_types.cpp tests/test_bitboard.cpp tests/test_attacks.cpp tests/test_position.cpp tests/test_movegen.cpp tests/test_perft.cpp tests/test_eval.cpp tests/test_search.cpp tests/test_zobrist.cpp tests/test_tt.cpp tests/test_uci.cpp tests/test_see.cpp)
   target_link_libraries(chess_tests PRIVATE chess_lib doctest::doctest)
   target_include_directories(chess_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
