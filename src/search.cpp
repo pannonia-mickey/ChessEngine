@@ -103,19 +103,31 @@ constexpr int KILLER2_SCORE = 800'000;
 void order_moves(const Position& pos, MoveList& list, Move pv_move, int ply,
                   const SearchTables& tables) {
     int killer_ply = ply <= MAX_DEPTH ? ply : MAX_DEPTH;
-    std::sort(list.begin(), list.end(), [&](Move a, Move b) {
-        auto score = [&](Move m) {
-            if (m == pv_move) return PV_SCORE;
-            if (is_capture(pos, m)) {
-                int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
-                return CAPTURE_BASE + capture_score;
-            }
-            if (m == tables.killers[killer_ply][0]) return KILLER1_SCORE;
-            if (m == tables.killers[killer_ply][1]) return KILLER2_SCORE;
-            return tables.history[pos.side_to_move()][from_sq(m)][to_sq(m)];
-        };
-        return score(a) > score(b);
+    Color us = pos.side_to_move();
+
+    struct ScoredMove { int score; Move move; };
+    ScoredMove scored[256];
+    for (int i = 0; i < list.size; ++i) {
+        Move m = list.moves[i];
+        int score;
+        if (m == pv_move) {
+            score = PV_SCORE;
+        } else if (is_capture(pos, m)) {
+            int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
+            score = CAPTURE_BASE + capture_score;
+        } else if (m == tables.killers[killer_ply][0]) {
+            score = KILLER1_SCORE;
+        } else if (m == tables.killers[killer_ply][1]) {
+            score = KILLER2_SCORE;
+        } else {
+            score = tables.history[us][from_sq(m)][to_sq(m)];
+        }
+        scored[i] = {score, m};
+    }
+    std::sort(scored, scored + list.size, [](const ScoredMove& a, const ScoredMove& b) {
+        return a.score > b.score;
     });
+    for (int i = 0; i < list.size; ++i) list.moves[i] = scored[i].move;
 }
 
 // Wall-clock deadline enforcement for the search. Checked periodically
@@ -176,14 +188,22 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
     MoveList moves;
     if (checked) {
         moves = list;
+        order_moves(pos, moves, MOVE_NONE, ply, tables);
     } else {
+        struct ScoredCapture { int score; Move move; };
+        ScoredCapture scored[256];
+        int n = 0;
         for (Move m : list) {
             if (!is_capture(pos, m)) continue;
-            if (flag_of(m) != PROMOTION && see(pos, m) < 0) continue;
-            moves.add(m);
+            int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
+            if (flag_of(m) != PROMOTION && capture_score < 0) continue;
+            scored[n++] = {capture_score, m};
         }
+        std::sort(scored, scored + n, [](const ScoredCapture& a, const ScoredCapture& b) {
+            return a.score > b.score;
+        });
+        for (int i = 0; i < n; ++i) moves.add(scored[i].move);
     }
-    order_moves(pos, moves, MOVE_NONE, ply, tables);
 
     StateInfo st;
     for (Move m : moves) {
