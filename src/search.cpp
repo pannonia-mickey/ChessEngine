@@ -177,8 +177,11 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
     if (checked) {
         moves = list;
     } else {
-        for (Move m : list)
-            if (is_capture(pos, m)) moves.add(m);
+        for (Move m : list) {
+            if (!is_capture(pos, m)) continue;
+            if (flag_of(m) != PROMOTION && see(pos, m) < 0) continue;
+            moves.add(m);
+        }
     }
     order_moves(pos, moves, MOVE_NONE, ply, tables);
 
