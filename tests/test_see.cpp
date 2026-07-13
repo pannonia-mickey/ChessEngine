@@ -20,3 +20,11 @@ TEST_CASE("SEE: losing capture returns a negative value when the defender wins t
     Position p; CHECK(p.set("1n5k/3p4/8/8/8/8/8/K2Q4 w - - 0 1"));
     CHECK(see(p, make_move(SQ_D1, SQ_D7)) == -800);
 }
+
+TEST_CASE("SEE: even rook trade nets zero") {
+    attacks::init();
+    // White rook a1 takes the rook on a8; Black's rook on h8 recaptures
+    // along rank 8. Rook for rook: net = 0.
+    Position p; CHECK(p.set("r6r/7k/8/8/8/8/8/R6K w - - 0 1"));
+    CHECK(see(p, make_move(SQ_A1, SQ_A8)) == 0);
+}
