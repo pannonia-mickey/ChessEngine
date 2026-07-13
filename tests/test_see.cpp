@@ -57,8 +57,15 @@ TEST_CASE("SEE: reveals an x-ray attacker behind a captured piece") {
 TEST_CASE("SEE: en passant capture uses the actual captured pawn's square") {
     attacks::init();
     // White pawn e5 captures en passant onto d6, removing Black's pawn
-    // actually sitting on d5 (not on d6). No other piece attacks d6, so
-    // the result is simply the captured pawn's value.
-    Position p; CHECK(p.set("7k/8/8/3pP3/8/8/8/K7 w - d6 0 1"));
-    CHECK(see(p, make_move(SQ_E5, SQ_D6, EN_PASSANT)) == 100);
+    // actually sitting on d5 (not on d6). Black's rook on d1 can only
+    // attack d6 - and thus recapture - once d5 is genuinely cleared from
+    // the exchange's occupancy: with d5 vacated, the rook's file is open
+    // all the way to d6 (500-value rook recaptures the 100-value pawn,
+    // netting 0 overall: 100 - 100 = 0). An implementation that mistakenly
+    // cleared d6 (the move's destination) instead of d5 (the actual
+    // captured square) would leave d5 "occupied" in the simulated
+    // occupancy, blocking the rook's file, and would wrongly compute 100
+    // (as if the rook were never there) instead of the correct 0.
+    Position p; CHECK(p.set("7k/8/8/3pP3/8/8/K7/3r4 w - d6 0 1"));
+    CHECK(see(p, make_move(SQ_E5, SQ_D6, EN_PASSANT)) == 0);
 }
