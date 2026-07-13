@@ -12,32 +12,6 @@
 
 namespace chess {
 
-namespace {
-
-constexpr int INF = 1'000'000;
-constexpr int MATE_THRESHOLD = MATE - MAX_DEPTH;
-
-int score_to_tt(int score, int ply) {
-    if (score >= MATE_THRESHOLD) return score + ply;
-    if (score <= -MATE_THRESHOLD) return score - ply;
-    return score;
-}
-
-int score_from_tt(int score, int ply) {
-    if (score >= MATE_THRESHOLD) return score - ply;
-    if (score <= -MATE_THRESHOLD) return score + ply;
-    return score;
-}
-
-bool in_check(const Position& pos) {
-    Color us = pos.side_to_move();
-    return pos.square_attacked_by(pos.king_square(us), Color(us ^ 1));
-}
-
-bool is_capture(const Position& pos, Move m) {
-    return pos.piece_on(to_sq(m)) != NO_PIECE || flag_of(m) == EN_PASSANT;
-}
-
 // True if the position at the end of `history` (i.e. `history.back()`) is a
 // draw by repetition, given `halfmove` = Position::halfmove() for that
 // position (how far back a repeat could possibly reach, since a capture or
@@ -64,6 +38,32 @@ bool is_repetition(const std::vector<zobrist::Key>& history, int halfmove, int p
         if (++occurrences >= 2) return true;
     }
     return false;
+}
+
+namespace {
+
+constexpr int INF = 1'000'000;
+constexpr int MATE_THRESHOLD = MATE - MAX_DEPTH;
+
+int score_to_tt(int score, int ply) {
+    if (score >= MATE_THRESHOLD) return score + ply;
+    if (score <= -MATE_THRESHOLD) return score - ply;
+    return score;
+}
+
+int score_from_tt(int score, int ply) {
+    if (score >= MATE_THRESHOLD) return score - ply;
+    if (score <= -MATE_THRESHOLD) return score + ply;
+    return score;
+}
+
+bool in_check(const Position& pos) {
+    Color us = pos.side_to_move();
+    return pos.square_attacked_by(pos.king_square(us), Color(us ^ 1));
+}
+
+bool is_capture(const Position& pos, Move m) {
+    return pos.piece_on(to_sq(m)) != NO_PIECE || flag_of(m) == EN_PASSANT;
 }
 
 // Cheap MVV-LVA ordering key: captures score highest (bigger victim, smaller

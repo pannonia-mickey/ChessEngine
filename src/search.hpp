@@ -70,6 +70,14 @@ struct IterationInfo {
     Move best = MOVE_NONE;
 };
 
+// True if the position at the end of `history` (i.e. `history.back()`) is a
+// draw by repetition. See search.cpp for the full contract: `halfmove` is
+// Position::halfmove() for that position, and `ply` is how many of
+// history's trailing entries were reached by moves the caller itself made
+// (0 if none - e.g. a search root, or the start of a PV walk - meaning every
+// entry counts as real game/game-so-far history).
+bool is_repetition(const std::vector<zobrist::Key>& history, int halfmove, int ply);
+
 // Mate score: a checkmate found `ply` plies from the root scores as
 // -MATE + ply (from the perspective of the side that is mated), so
 // faster mates score more extreme than slower ones.

@@ -58,9 +58,15 @@ std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<st
 // `max_len` moves. Stops early if a stored move isn't legal in the position
 // it was reached at (a defensive check, exactly like uci_to_move/
 // build_game_history: TT entries can in principle be stale or, in a hash
-// collision, belong to a different position) or if the TT has no entry for
-// the reached position. `pos` is left unchanged once this function returns.
-std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len);
+// collision, belong to a different position), if the TT has no entry for
+// the reached position, or if the reached position is already a forced draw
+// (fifty-move or repetition, the latter checked against `history` - the
+// real game's Zobrist keys up to and including `pos`, same contract as
+// SearchLimits::history) - past that point the position is drawn regardless
+// of what the TT chain says, so the PV must not keep listing moves. `pos` is
+// left unchanged once this function returns.
+std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len,
+                              std::vector<zobrist::Key> history = {});
 
 // A parsed "go ..." command's options (tok[0] == "go"). Unset numeric
 // fields default to 0 except `depth`, which defaults to the same depth-6

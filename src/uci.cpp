@@ -143,10 +143,12 @@ std::vector<zobrist::Key> build_game_history(Position& pos, const std::vector<st
     return history;
 }
 
-std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len) {
+std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move first, int max_len,
+                              std::vector<zobrist::Key> history) {
     std::vector<Move> pv;
     std::vector<StateInfo> states;
     Move m = first;
+    int ply = 0;
     while (m != MOVE_NONE && static_cast<int>(pv.size()) < max_len) {
         MoveList legal;
         generate_legal(pos, legal);
@@ -158,6 +160,13 @@ std::vector<Move> extract_pv(Position& pos, const TranspositionTable& tt, Move f
         pos.do_move(m, st);
         states.push_back(st);
         pv.push_back(m);
+        history.push_back(pos.key());
+        ++ply;
+
+        // The position just reached is already a forced draw: nothing past
+        // it is a real continuation, no matter what the TT chain says.
+        if (pos.halfmove() >= 100 || is_repetition(history, pos.halfmove(), ply))
+            break;
 
         const TTEntry* e = tt.probe(pos.key());
         m = e ? e->best : MOVE_NONE;
@@ -445,8 +454,8 @@ void uci_loop() {
             // one info line at the very end. Safe to touch `pos`/`tt` here:
             // the search thread only calls back between root moves, when
             // both are back at the search's root state.
-            lim.on_iteration = [&pos, &tt, &info_printed](const IterationInfo& info) {
-                std::vector<Move> pv = extract_pv(pos, tt, info.best, info.depth);
+            lim.on_iteration = [&pos, &tt, &info_printed, history = lim.history](const IterationInfo& info) {
+                std::vector<Move> pv = extract_pv(pos, tt, info.best, info.depth, history);
                 std::cout << format_info_line(info, pv, tt.hashfull()) << std::endl;
                 info_printed = true;
             };
@@ -462,7 +471,7 @@ void uci_loop() {
                     info.nodes = r.nodes;
                     info.best = r.best;
                     std::vector<Move> pv;
-                    if (r.best != MOVE_NONE) pv = extract_pv(pos, tt, r.best, 1);
+                    if (r.best != MOVE_NONE) pv = extract_pv(pos, tt, r.best, 1, lim.history);
                     std::cout << format_info_line(info, pv, tt.hashfull()) << std::endl;
                 }
                 if (r.best == MOVE_NONE) {

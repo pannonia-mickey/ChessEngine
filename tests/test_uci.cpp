@@ -183,6 +183,60 @@ TEST_CASE("extract_pv respects max_len") {
     CHECK(p.fen() == "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"); // pos restored
 }
 
+TEST_CASE("extract_pv stops once the PV reaches a threefold repetition") {
+    attacks::init();
+    zobrist::init();
+
+    // Two lone kings shuffling back and forth: e3/e5 -> e2/e5 -> e2/e6 ->
+    // e3/e6 -> e3/e5 - the smallest possible repeating cycle, and every move
+    // in it has a TT entry pointing to the next one, so the chain would
+    // cycle forever without a repetition check. Halfmove clock starts at 4
+    // to match the 4 real plies already implied by `history` below (all
+    // king moves, so nothing has reset it).
+    Position p; p.set("8/8/8/4k3/8/4K3/8/8 w - - 4 1");
+    zobrist::Key p0 = p.key();
+
+    Move ke3e2 = uci_to_move(p, "e3e2");
+    StateInfo s1; p.do_move(ke3e2, s1);
+    zobrist::Key p1 = p.key();
+
+    Move ke5e6 = uci_to_move(p, "e5e6");
+    StateInfo s2; p.do_move(ke5e6, s2);
+    zobrist::Key p2 = p.key();
+
+    Move ke2e3 = uci_to_move(p, "e2e3");
+    StateInfo s3; p.do_move(ke2e3, s3);
+    zobrist::Key p3 = p.key();
+
+    Move ke6e5 = uci_to_move(p, "e6e5");
+    StateInfo s4; p.do_move(ke6e5, s4);
+    REQUIRE(p.key() == p0); // back to the start after 4 plies
+
+    p.undo_move(ke6e5, s4);
+    p.undo_move(ke2e3, s3);
+    p.undo_move(ke5e6, s2);
+    p.undo_move(ke3e2, s1);
+
+    TranspositionTable tt(16);
+    tt.store(p0, 1, 0, TT_EXACT, ke3e2);
+    tt.store(p1, 1, 0, TT_EXACT, ke5e6);
+    tt.store(p2, 1, 0, TT_EXACT, ke2e3);
+    tt.store(p3, 1, 0, TT_EXACT, ke6e5);
+
+    // P0 already occurred once earlier in the real game, and this search's
+    // root (also P0) is its second occurrence; walking the TT chain one
+    // full cycle reaches a third occurrence of P0 - an actual threefold
+    // draw, past which the PV must not keep listing moves.
+    std::vector<zobrist::Key> history{p0, p1, p2, p3, p0};
+
+    std::vector<Move> pv = extract_pv(p, tt, ke3e2, 20, history);
+    REQUIRE(pv.size() == 4);
+    CHECK(pv[0] == ke3e2);
+    CHECK(pv[1] == ke5e6);
+    CHECK(pv[2] == ke2e3);
+    CHECK(pv[3] == ke6e5);
+}
+
 TEST_CASE("parse_go reads depth and marks depth_set") {
     attacks::init();
     Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
