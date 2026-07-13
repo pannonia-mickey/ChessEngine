@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "eval.hpp"
+#include "see.hpp"
 #include "movegen.hpp"
 #include "position.hpp"
 #include "tt.hpp"
@@ -105,7 +106,10 @@ void order_moves(const Position& pos, MoveList& list, Move pv_move, int ply,
     std::sort(list.begin(), list.end(), [&](Move a, Move b) {
         auto score = [&](Move m) {
             if (m == pv_move) return PV_SCORE;
-            if (is_capture(pos, m)) return CAPTURE_BASE + mvv_lva_score(pos, m);
+            if (is_capture(pos, m)) {
+                int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
+                return CAPTURE_BASE + capture_score;
+            }
             if (m == tables.killers[killer_ply][0]) return KILLER1_SCORE;
             if (m == tables.killers[killer_ply][1]) return KILLER2_SCORE;
             return tables.history[pos.side_to_move()][from_sq(m)][to_sq(m)];
