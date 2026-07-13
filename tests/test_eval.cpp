@@ -62,15 +62,15 @@ TEST_CASE("a centralized knight has higher mobility than one boxed in by its own
     // own PST contribution and all material values cancel exactly; only the
     // knight's mobility differs. A knight on c5 attacks a4, a6, b3, b7, d3,
     // d7, e4, e6 (8 squares).
-    Position mobile; mobile.set("pp2k1p1/8/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
-    // White pawns on a2, c2, f2, h2 (Black pawns on a7, b7, g7 ahead of them,
-    // making them not passed). None of the White pawns are among the knight's
+    Position mobile; mobile.set("4k3/p1p2p1p/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
+    // White pawns on a2, c2, f2, h2; Black pawns on a7, c7, f7, h7 ahead of them
+    // (making them not passed). None of the White pawns are among the knight's
     // eight attack squares, so all 8 stay reachable (mobility = 8).
-    Position boxed; boxed.set("p1pp1p2/8/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
-    // White pawns on a4, b3, d3, e4 with Black pawns on a7, c7, d7, f7 ahead
-    // of them, making them not passed. The four White pawns occupy exactly
-    // four of the knight's eight attack squares (a4, b3, d3, e4), leaving only
-    // a6, b7, d7, e6 reachable (mobility = 4).
+    Position boxed; boxed.set("4k3/pp1pp3/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
+    // White pawns on a4, b3, d3, e4; Black pawns on a7, b7, d7, e7 ahead of them
+    // (making them not passed). Same material (K+N+4P each side).
+    // The four White pawns occupy exactly four of the knight's eight attack
+    // squares (a4, b3, d3, e4), leaving only a6, b7, d7, e6 reachable (mobility = 4).
     CHECK(evaluate(mobile) > evaluate(boxed));
 }
 
@@ -135,7 +135,7 @@ TEST_CASE("an unopposed passed pawn outscores one that can be blocked or capture
 TEST_CASE("a more advanced passed pawn outscores a less advanced one") {
     attacks::init();
     // Same material; both pawns are passed (no blockers), only rank differs.
-    Position advanced; CHECK(advanced.set("4k3/3P4/8/8/8/8/8/4K3 w - - 0 1")); // White pawn d7
+    Position advanced; CHECK(advanced.set("4k3/8/3P4/8/8/8/8/4K3 w - - 0 1")); // White pawn d6
     Position early;    CHECK(early.set("4k3/8/8/8/8/8/3P4/4K3 w - - 0 1"));    // White pawn d2
     CHECK(evaluate(advanced) > evaluate(early));
 }
