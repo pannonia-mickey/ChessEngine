@@ -14,6 +14,17 @@ TEST_CASE("move <-> uci string") {
     CHECK(uci_to_move(p, "e2e4") == make_move(SQ_E2, SQ_E4));
 }
 
+TEST_CASE("uci_to_move rejects out-of-range file/rank letters instead of aliasing a legal move") {
+    attacks::init();
+    Position p; p.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    // 'i' - 'a' == 8, which make_square()'s rank*8+file arithmetic would
+    // otherwise wrap into SQ_A2/SQ_A3 - a real legal move (a2a3) - instead of
+    // being rejected as the malformed token it is.
+    CHECK(uci_to_move(p, "i1i2") == MOVE_NONE);
+    CHECK(uci_to_move(p, "a0a1") == MOVE_NONE);
+    CHECK(uci_to_move(p, "a9a1") == MOVE_NONE);
+}
+
 TEST_CASE("format_score formats centipawn and mate scores per the UCI spec") {
     CHECK(format_score(37) == "cp 37");
     CHECK(format_score(-120) == "cp -120");

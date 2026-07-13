@@ -60,6 +60,14 @@ std::string move_to_uci(Move m) {
 
 Move uci_to_move(Position& pos, const std::string& s) {
     if (s.size() < 4) return MOVE_NONE;
+    // Each coordinate must land in a-h/1-8: out-of-range file/rank deltas
+    // (e.g. 'i' - 'a' = 8) can otherwise wrap into a *different*, coincidentally
+    // valid square via make_square()'s rank*8+file arithmetic, silently
+    // aliasing a malformed token onto an unrelated legal move instead of
+    // being rejected as illegal.
+    if (s[0] < 'a' || s[0] > 'h' || s[1] < '1' || s[1] > '8' ||
+        s[2] < 'a' || s[2] > 'h' || s[3] < '1' || s[3] > '8')
+        return MOVE_NONE;
     Square from = make_square(s[0] - 'a', s[1] - '1');
     Square to = make_square(s[2] - 'a', s[3] - '1');
     PieceType promo = NO_PIECE_TYPE;
