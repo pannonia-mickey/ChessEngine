@@ -281,15 +281,6 @@ TEST_CASE("search_best_move reuses a warm caller-supplied table to search fewer 
     CHECK(reused.nodes < fresh.nodes);
 }
 
-TEST_CASE("PVS null-window probing keeps node count well below plain alpha-beta") {
-    attacks::init();
-    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
-    SearchLimits lim; lim.depth = 6;
-    TranspositionTable tt(16);
-    SearchResult r = search_best_move(p, lim, tt);
-    CHECK(r.nodes < 65000); // current master (no PVS): 70,707 nodes at this depth
-}
-
 TEST_CASE("nodes_limit stops the search close to the requested node budget") {
     attacks::init();
     Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");

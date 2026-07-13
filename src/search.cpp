@@ -305,34 +305,20 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         int score;
         // Reduce quiet, non-promoting, non-checking moves searched after the
         // first few (they're least likely to be best, per move ordering).
+        // If the reduced search still beats alpha, it wasn't actually a bad
+        // move, so re-search at full depth before trusting the score - this
+        // re-search is what keeps LMR correctness-preserving: a reduction
+        // only ever costs extra nodes, never a wrong answer.
         bool do_lmr = depth >= 3 && move_index >= 4 && !capture &&
                       mf != PROMOTION && !gives_check && m != tt_move;
-        int move_search_depth = do_lmr ? depth - 2 : depth - 1;
-
-        if (move_index == 0) {
-            // Principal Variation Search: the first move at this node is
-            // presumed best by move ordering (TT move / top SEE capture),
-            // so it alone is worth searching with the full window.
-            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
+        if (do_lmr) {
+            score = -negamax(pos, depth - 2, -alpha - 1, -alpha, ply + 1,
                               nodes, tg, tt, tables, history);
-        } else {
-            // Every later move first gets a cheap null-window probe (at
-            // LMR's reduced depth when do_lmr applies) whose only job is
-            // to prove "not better than alpha". Beating alpha means the
-            // probe wasn't conclusive: a reduced-depth probe (do_lmr)
-            // always needs a full-depth look before it can be trusted -
-            // this is what keeps LMR correctness-preserving, a reduction
-            // only ever costs extra nodes, never a wrong answer - while a
-            // full-depth probe that lands strictly inside (alpha, beta)
-            // needs a real full-window re-search for its exact value. A
-            // full-depth probe that already reaches >= beta guarantees a
-            // cutoff at the parent regardless of the move's exact value,
-            // so no re-search is needed for it.
-            score = -negamax(pos, move_search_depth, -alpha - 1, -alpha, ply + 1,
-                              nodes, tg, tt, tables, history);
-            if (score > alpha && (do_lmr || score < beta))
+            if (score > alpha)
                 score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
                                   nodes, tg, tt, tables, history);
+        } else {
+            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1, nodes, tg, tt, tables, history);
         }
         history.pop_back();
         pos.undo_move(m, st);
