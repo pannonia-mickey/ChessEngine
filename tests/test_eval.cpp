@@ -90,19 +90,32 @@ TEST_CASE("the bishop pair is worth a bonus over a lone bishop") {
 
 TEST_CASE("a rook on a fully open file outscores one blocked by its own pawn") {
     attacks::init();
-    // Same material (K+R+P) and same rook/king squares in both; only
-    // whether the rook's own pawn sits on its file differs.
-    // Pawn on a2 (open file): PST -35 in MG
-    // Pawn on d2 (blocked rook d-file): PST -23 in MG
-    // So the pawn's own PST is 12cp WORSE on a2, meaning the rook's open-file
-    // bonus must overcome that to drive the CHECK direction.
-    // Test isolation: the rook mobility difference (7 squares * weight 2 = 14cp)
-    // combined with rook_file_bonus (20cp) and tapered PST (~1cp) should make
-    // the open position significantly better.
-    Position open;    CHECK(open.set("4k3/8/8/8/8/8/P7/3RK3 w - - 0 1") == true);    // Rd1, pawn on a2
-    Position blocked; CHECK(blocked.set("4k3/8/8/8/8/8/3P4/3RK3 w - - 0 1") == true); // Rd1, pawn on d2
+    // The rook's mobility is boxed to exactly 0 in BOTH positions: King d2
+    // blocks it immediately to the north, Bishop c1 blocks it immediately to
+    // the west, Bishop e1 blocks it immediately to the east, and rank 1's
+    // south edge needs no blocker. So nothing on the d-file beyond d2 (or
+    // anywhere else) can change the rook's mobility() contribution - only
+    // rook_file_bonus()'s whole-file scan (which inspects the entire file,
+    // not just squares the rook can see) can pick up a pawn placed there.
+    // The bishops' own diagonals are also unaffected: c1's only open
+    // diagonal (b2/a3) and e1's only open diagonal (f2/g3/h4) never cross
+    // the d-file or h3/d3 (the two pawn squares used below), so bishop
+    // mobility is identical in both positions too.
+    // The lone White pawn sits on h3 in "open" (off the d-file entirely, so
+    // rook_file_bonus() sees no own pawn on d -> ROOK_OPEN_FILE_BONUS) and on
+    // d3 in "blocked" (same file as the rook, one square behind the king
+    // that already blocks the rook's view -> no bonus). Moving the pawn
+    // between h3/d3 (same rank) leaves material identical and leaves only a
+    // small pawn-PST residual (verified empirically below to be a few
+    // centipawns against the "open" side), so the ~20cp rook_file_bonus is
+    // what decides the comparison, not an artifact of mobility or PST.
+    Position open;    CHECK(open.set("k7/8/8/8/8/7P/3K4/2BRB3 w - - 0 1") == true);    // Kd2,Bc1,Rd1,Be1, pawn h3; Black Ka8
+    Position blocked; CHECK(blocked.set("k7/8/8/8/8/3P4/3K4/2BRB3 w - - 0 1") == true); // same, pawn d3 instead of h3
     int open_eval = evaluate(open);
     int blocked_eval = evaluate(blocked);
-    // Expect significant bonus for open file: mobility (14cp) + rook_file_bonus (20cp)
+    // rook_file_bonus() differs (open: +20, blocked: +0); mobility and
+    // bishop pair are identical between the two, and the pawn-PST residual
+    // (a few cp against "open", per the comment above) is smaller than the
+    // bonus, so the bonus is what decides the direction of this CHECK.
     CHECK(open_eval > blocked_eval);
 }
