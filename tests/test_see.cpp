@@ -28,3 +28,15 @@ TEST_CASE("SEE: even rook trade nets zero") {
     Position p; CHECK(p.set("r6r/7k/8/8/8/8/8/R6K w - - 0 1"));
     CHECK(see(p, make_move(SQ_A1, SQ_A8)) == 0);
 }
+
+TEST_CASE("SEE: declines a further capture that would lose material (stops the exchange early)") {
+    attacks::init();
+    // White pawn d4 takes the pawn on e5. Black recaptures with the
+    // knight on c6 (regaining the pawn: net so far 0). White *could*
+    // recapture the knight with the queen on e1, but Black's rook on e8
+    // would then win the queen for a rook - a bad trade for White, who
+    // therefore should decline it and stop. Final result: 0, not the
+    // -580 a naive "always recapture" implementation would compute.
+    Position p; CHECK(p.set("4r2k/8/2n5/4p3/3P4/8/8/K3Q3 w - - 0 1"));
+    CHECK(see(p, make_move(SQ_D4, SQ_E5)) == 0);
+}
