@@ -57,20 +57,24 @@ TEST_CASE("king PST pins exact castled/exposed values") {
 
 TEST_CASE("a centralized knight has higher mobility than one boxed in by its own pawns") {
     attacks::init();
-    // The knight sits on the *same* square (c5) in both positions, and both
-    // have identical material (White: K+N+4P, Black: K+4p), so the knight's
-    // own PST contribution and all material values cancel exactly; only the
-    // knight's mobility differs. A knight on c5 attacks a4, a6, b3, b7, d3,
-    // d7, e4, e6 (8 squares).
-    Position mobile; mobile.set("4k3/p1p2p1p/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
-    // White pawns on a2, c2, f2, h2; Black pawns on a7, c7, f7, h7 ahead of them
-    // (making them not passed). None of the White pawns are among the knight's
-    // eight attack squares, so all 8 stay reachable (mobility = 8).
-    Position boxed; boxed.set("4k3/pp1pp3/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
-    // White pawns on a4, b3, d3, e4; Black pawns on a7, b7, d7, e7 ahead of them
-    // (making them not passed). Same material (K+N+4P each side).
-    // The four White pawns occupy exactly four of the knight's eight attack
-    // squares (a4, b3, d3, e4), leaving only a6, b7, d7, e6 reachable (mobility = 4).
+    // The knight sits on the *same* square (c5) in both positions. Black's
+    // four pawns sit on the SAME squares (b7, d7, f7, h7) in BOTH positions,
+    // so Black's PST/material contribution cancels exactly between the two
+    // evaluate() calls. The b/d/f/h files are chosen so that every White
+    // pawn in both configurations (a2,c2,f2,h2 in "mobile"; a4,b3,d3,e4 in
+    // "boxed") has a Black pawn on its own file or an adjacent file, keeping
+    // all White pawns non-passed in both positions. What remains is White's
+    // own pawn-PST difference plus the knight's mobility difference. A
+    // knight on c5 attacks a4, a6, b3, b7, d3, d7, e4, e6 (8 squares).
+    Position mobile; mobile.set("4k3/1p1p1p1p/8/2N5/8/8/P1P2P1P/4K3 w - - 0 1");
+    // White pawns on a2, c2, f2, h2; Black pawns on b7, d7, f7, h7. None of
+    // the White pawns are among the knight's eight attack squares, so all 8
+    // stay reachable (mobility = 8).
+    Position boxed; boxed.set("4k3/1p1p1p1p/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
+    // White pawns on a4, b3, d3, e4; Black pawns on b7, d7, f7, h7 (same
+    // squares as in "mobile", so they cancel exactly). The four White pawns
+    // occupy exactly four of the knight's eight attack squares (a4, b3, d3,
+    // e4), leaving only a6, b7, d7, e6 reachable (mobility = 4).
     CHECK(evaluate(mobile) > evaluate(boxed));
 }
 
@@ -124,18 +128,36 @@ TEST_CASE("a rook on a fully open file outscores one blocked by its own pawn") {
 
 TEST_CASE("an unopposed passed pawn outscores one that can be blocked or captured") {
     attacks::init();
-    // Same material (K+P each side) and same White pawn square (d5) in
-    // both; only whether Black has a pawn able to block/capture it on the
-    // d/c/e files ahead of it differs.
-    Position passed; CHECK(passed.set("4k3/8/8/3P4/8/8/8/4K3 w - - 0 1"));   // White pawn d5, no black pawns at all
-    Position blocked; CHECK(blocked.set("4k3/8/3p4/3P4/8/8/8/4K3 w - - 0 1")); // Black pawn directly ahead on d6
+    // Same material (K+P+decoy-P each side) and same White pawn square (d5)
+    // in both; "passed" gets a decoy Black pawn on a6 (a file that doesn't
+    // block/capture the d-file pawn, so White's pawn is still passed, but
+    // material is now equal in both positions), while "blocked" has a Black
+    // pawn on d6 directly ahead of the White pawn.
+    Position passed; CHECK(passed.set("4k3/8/p7/3P4/8/8/8/4K3 w - - 0 1"));   // White pawn d5 (passed); Black decoy pawn a6 (doesn't block)
+    Position blocked; CHECK(blocked.set("4k3/8/3p4/3P4/8/8/8/4K3 w - - 0 1")); // White pawn d5 (blocked); Black pawn d6 blocks it
     CHECK(evaluate(passed) > evaluate(blocked));
 }
 
 TEST_CASE("a more advanced passed pawn outscores a less advanced one") {
     attacks::init();
-    // Same material; both pawns are passed (no blockers), only rank differs.
-    Position advanced; CHECK(advanced.set("4k3/8/3P4/8/8/8/8/4K3 w - - 0 1")); // White pawn d6
-    Position early;    CHECK(early.set("4k3/8/8/8/8/8/3P4/4K3 w - - 0 1"));    // White pawn d2
-    CHECK(evaluate(advanced) > evaluate(early));
+    // Isolate the passed-pawn bonus's rank-scaling from the pawn PST's own
+    // rank-scaling (both increase with rank, so a direct passed-vs-passed
+    // comparison at different ranks can't isolate the bonus alone) by
+    // comparing (passed - blocked) deltas at two different ranks instead.
+    // The decoy pawn (a4) is identical in both "passed" positions, and the
+    // blocker pawn (d7) is identical in both "blocked" positions - so its
+    // PST/material contribution cancels exactly between the two deltas -
+    // and the only thing that can make one delta bigger than the other is
+    // the passed-pawn bonus table's rank-dependent value. (d7, not d8: a
+    // pawn can never legally sit on the back rank in this engine -
+    // Position::set() rejects it - so d7 is used as the nearest square that
+    // still blocks both the d6 and d3 White pawns.)
+    Position adv_passed;  CHECK(adv_passed.set("4k3/8/3P4/8/p7/8/8/4K3 w - - 0 1"));  // White Pd6 (passed), Black decoy Pa4
+    Position adv_blocked; CHECK(adv_blocked.set("4k3/3p4/3P4/8/8/8/8/4K3 w - - 0 1"));  // White Pd6 (blocked by Black Pd7)
+    Position early_passed;  CHECK(early_passed.set("4k3/8/8/8/p7/3P4/8/4K3 w - - 0 1"));  // White Pd3 (passed), Black decoy Pa4
+    Position early_blocked; CHECK(early_blocked.set("4k3/3p4/8/8/8/3P4/8/4K3 w - - 0 1"));  // White Pd3 (blocked by Black Pd7, same square as adv_blocked's blocker)
+
+    int delta_advanced = evaluate(adv_passed) - evaluate(adv_blocked);
+    int delta_early = evaluate(early_passed) - evaluate(early_blocked);
+    CHECK(delta_advanced > delta_early);
 }
