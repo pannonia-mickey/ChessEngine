@@ -1,5 +1,6 @@
 .claude/settings.local.json
 .claude/plans/
 .claude/worktrees/
+.worktrees/
 /build/
 compile_commands.json
