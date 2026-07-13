@@ -267,6 +267,24 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
 
     bool checked = in_check(pos);
 
+    // Reverse futility pruning (static null-move pruning): at shallow
+    // remaining depth, if the static eval already clears beta by more than
+    // a per-ply safety margin, the position is comfortably winning enough
+    // that searching further is very unlikely to change the outcome, so
+    // the node is cut immediately without recursing. Skipped in check (the
+    // static eval is unreliable there) and near mate scores (same
+    // reasoning as null-move pruning's own guard below). Fail-soft: returns
+    // the actual (eval - margin) lower bound rather than the coarser
+    // `beta`, consistent with quiescence's own fail-soft standing pat.
+    constexpr int RFP_MAX_DEPTH = 8;
+    constexpr int RFP_MARGIN = 120;
+    if (!checked && depth <= RFP_MAX_DEPTH && beta < MATE_THRESHOLD) {
+        int eval = evaluate(pos);
+        int margin = RFP_MARGIN * depth;
+        if (eval - margin >= beta)
+            return eval - margin;
+    }
+
     // Null-move pruning: if we could pass the turn entirely and the
     // opponent still can't beat beta at a reduced depth, our own best move
     // certainly won't need full-depth verification either. Skipped in check

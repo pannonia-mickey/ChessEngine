@@ -381,3 +381,48 @@ TEST_CASE("multi_pv larger than the number of legal moves reports only as many l
     search_best_move(p, lim, tt);
     CHECK(calls == legal.size);
 }
+
+TEST_CASE("reverse futility pruning cuts nodes in a lopsided, materially winning position") {
+    attacks::init();
+    // White is up a full queen (Black's queen removed from the normal
+    // "r1bqkbnr/..." test position used elsewhere in this file) - White's
+    // static eval is far above any reasonable beta at most nodes in the
+    // tree, so RFP should fire repeatedly within its depth window.
+    Position p; p.set("r1b1kbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 8;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.nodes < 850000); // current master (no RFP): 900,894 nodes at this depth
+}
+
+TEST_CASE("reverse futility pruning does not fire while in check") {
+    attacks::init();
+    // White: Ka1 (in check from Ra8 down the open a-file), Qd4, Rh1, Pb2.
+    // Black: Ke8, Ra8. White is hugely material-up (queen + rook vs a lone
+    // rook), so a naive static eval clears any reasonable beta by a wide
+    // margin - but White is in check, and the only legal reply is Ka1-b1
+    // (a2 is still on the checked a-file; b2 is occupied by White's own
+    // pawn). If RFP ever fired here (ignoring the `checked` guard), the
+    // search would return a static-eval-based cutoff instead of searching
+    // the forced king move, and could report the wrong "best" move.
+    Position p; p.set("r3k3/8/8/8/3Q4/8/1P6/K6R w - - 0 1");
+    SearchLimits lim; lim.depth = 3;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_A1, SQ_B1));
+}
+
+TEST_CASE("reverse futility pruning does not prevent finding a forced mate") {
+    attacks::init();
+    // Same mate-in-1 position used by "finds mate in one" above (Re8#),
+    // searched at depth 8 - RFP's own depth ceiling - so every node on the
+    // path to the mate is inside RFP's active depth window. The
+    // `beta < MATE_THRESHOLD` guard must keep RFP from ever cutting off a
+    // node that's genuinely hunting a mate score.
+    Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
+    SearchLimits lim; lim.depth = 8;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_E1, SQ_E8));
+    CHECK(r.score > 29000);
+}
