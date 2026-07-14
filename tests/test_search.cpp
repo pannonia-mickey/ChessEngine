@@ -392,7 +392,7 @@ TEST_CASE("reverse futility pruning cuts nodes in a lopsided, materially winning
     SearchLimits lim; lim.depth = 8;
     TranspositionTable tt(16);
     SearchResult r = search_best_move(p, lim, tt);
-    CHECK(r.nodes < 850000); // current master (no RFP): 900,894 nodes at this depth
+    CHECK(r.nodes < 850000); // current master (no RFP): 897,388 nodes at this depth
 }
 
 TEST_CASE("reverse futility pruning does not fire while in check") {
@@ -400,11 +400,14 @@ TEST_CASE("reverse futility pruning does not fire while in check") {
     // White: Ka1 (in check from Ra8 down the open a-file), Qd4, Rh1, Pb2.
     // Black: Ke8, Ra8. White is hugely material-up (queen + rook vs a lone
     // rook), so a naive static eval clears any reasonable beta by a wide
-    // margin - but White is in check, and the only legal reply is Ka1-b1
-    // (a2 is still on the checked a-file; b2 is occupied by White's own
-    // pawn). If RFP ever fired here (ignoring the `checked` guard), the
-    // search would return a static-eval-based cutoff instead of searching
-    // the forced king move, and could report the wrong "best" move.
+    // margin - but White is in check. Qd4-a4/a7 can legally interpose on
+    // the a-file, but either immediately hangs the queen to Rxa4/Rxa7, so
+    // Ka1-b1 (a2 is still on the checked a-file; b2 is occupied by White's
+    // own pawn) is the only move that doesn't throw material away. If RFP
+    // ever fired here (ignoring the `checked` guard), the search would
+    // return a static-eval-based cutoff instead of searching for the move
+    // that actually keeps the material, and could report the wrong "best"
+    // move.
     Position p; p.set("r3k3/8/8/8/3Q4/8/1P6/K6R w - - 0 1");
     SearchLimits lim; lim.depth = 3;
     TranspositionTable tt(16);

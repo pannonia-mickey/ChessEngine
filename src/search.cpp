@@ -275,7 +275,8 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
     // static eval is unreliable there) and near mate scores (same
     // reasoning as null-move pruning's own guard below). Fail-soft: returns
     // the actual (eval - margin) lower bound rather than the coarser
-    // `beta`, consistent with quiescence's own fail-soft standing pat.
+    // `beta`, consistent with this same move loop's own fail-soft `best`
+    // return below, which likewise can exceed `beta` on a cutoff.
     constexpr int RFP_MAX_DEPTH = 8;
     constexpr int RFP_MARGIN = 120;
     if (!checked && depth <= RFP_MAX_DEPTH && beta < MATE_THRESHOLD) {
