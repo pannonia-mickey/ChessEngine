@@ -40,6 +40,18 @@ if(CHESS_NATIVE_ARCH AND NOT MSVC)
       list(APPEND CHESS_TUNING_COMPILE_OPTIONS "-mcpu=native")
     endif()
   endif()
+elseif(CHESS_NATIVE_ARCH AND MSVC)
+  include(CheckCXXCompilerFlag)
+  # MSVC has no "native" flag - cl.exe never auto-detects the host CPU the
+  # way -march=native does. /arch:AVX2 is a fixed stand-in: virtually every
+  # x86-64 CPU since ~2013 supports it, and (like the GCC/Clang branch
+  # above) it lets std::popcount/std::countr_zero (src/bitboard.hpp) lower
+  # to hardware POPCNT/BMI instructions instead of a software fallback.
+  # Checked defensively in case an unusual toolset rejects it.
+  check_cxx_compiler_flag("/arch:AVX2" CHESS_HAS_ARCH_AVX2)
+  if(CHESS_HAS_ARCH_AVX2)
+    list(APPEND CHESS_TUNING_COMPILE_OPTIONS "/arch:AVX2")
+  endif()
 endif()
 
 if(CHESS_LTO)
