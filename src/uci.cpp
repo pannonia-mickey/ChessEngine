@@ -15,6 +15,7 @@
 #include "movegen.hpp"
 #include "search.hpp"
 #include "tt.hpp"
+#include "bench.hpp"
 
 namespace chess {
 
@@ -348,6 +349,12 @@ void uci_loop() {
             tt.clear();
         } else if (cmd == "debug") {
             debug_mode = parse_debug_command(tok, debug_mode);
+        } else if (cmd == "bench") {
+            int depth = BENCH_DEFAULT_DEPTH;
+            if (tok.size() > 1) {
+                try { depth = std::stoi(tok[1]); } catch (const std::exception&) {}
+            }
+            run_bench(depth);
         } else if (cmd == "ponderhit") {
             if (pondering) {
                 pondering = false;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 #include <vector>
 
 #include "eval.hpp"
@@ -96,9 +97,26 @@ constexpr int CAPTURE_BASE = 1'000'000;
 constexpr int KILLER1_SCORE = 900'000;
 constexpr int KILLER2_SCORE = 800'000;
 
-// `pv_move` first, then captures by MVV-LVA (offset above the killer/history
-// tiers so a real capture is never ordered behind a quiet killer), then the
-// two killer moves for this ply, then the rest ordered by history score.
+// Ordering priority shared by order_moves() and score_moves(): `pv_move`
+// first, then captures by MVV-LVA (offset above the killer/history tiers so
+// a real capture is never ordered behind a quiet killer), then the two
+// killer moves for this ply, then history score.
+int move_order_score(const Position& pos, Move m, Move pv_move, Color us, int killer_ply,
+                      const SearchTables& tables) {
+    if (m == pv_move) return PV_SCORE;
+    if (is_capture(pos, m)) {
+        int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
+        return CAPTURE_BASE + capture_score;
+    }
+    if (m == tables.killers[killer_ply][0]) return KILLER1_SCORE;
+    if (m == tables.killers[killer_ply][1]) return KILLER2_SCORE;
+    return tables.history[us][from_sq(m)][to_sq(m)];
+}
+
+// Eagerly sorts every move in `list` by move_order_score(). Used only at the
+// root, where every root move is always searched in full (no alpha-beta
+// cutoff ever skips the rest of the list there), so there is no benefit to
+// deferring the ordering work.
 void order_moves(const Position& pos, MoveList& list, Move pv_move, int ply,
                   const SearchTables& tables) {
     int killer_ply = ply <= MAX_DEPTH ? ply : MAX_DEPTH;
@@ -108,25 +126,41 @@ void order_moves(const Position& pos, MoveList& list, Move pv_move, int ply,
     ScoredMove scored[256];
     for (int i = 0; i < list.size; ++i) {
         Move m = list.moves[i];
-        int score;
-        if (m == pv_move) {
-            score = PV_SCORE;
-        } else if (is_capture(pos, m)) {
-            int capture_score = flag_of(m) == PROMOTION ? mvv_lva_score(pos, m) : see(pos, m);
-            score = CAPTURE_BASE + capture_score;
-        } else if (m == tables.killers[killer_ply][0]) {
-            score = KILLER1_SCORE;
-        } else if (m == tables.killers[killer_ply][1]) {
-            score = KILLER2_SCORE;
-        } else {
-            score = tables.history[us][from_sq(m)][to_sq(m)];
-        }
-        scored[i] = {score, m};
+        scored[i] = {move_order_score(pos, m, pv_move, us, killer_ply, tables), m};
     }
     std::sort(scored, scored + list.size, [](const ScoredMove& a, const ScoredMove& b) {
         return a.score > b.score;
     });
     for (int i = 0; i < list.size; ++i) list.moves[i] = scored[i].move;
+}
+
+// Lazy variant of order_moves(): computes every move's score (O(n)) but
+// leaves `list` unsorted. Pairs with pick_next_move() so a caller that often
+// stops early - negamax's and quiescence's move loops both break out on a
+// beta cutoff, which happens on the first move at most nodes given decent
+// move ordering - only pays for ordering the moves it actually examines,
+// instead of a full O(n log n) sort of moves it never looks at.
+void score_moves(const Position& pos, MoveList& list, Move pv_move, int ply,
+                  const SearchTables& tables, int scores[]) {
+    int killer_ply = ply <= MAX_DEPTH ? ply : MAX_DEPTH;
+    Color us = pos.side_to_move();
+    for (int i = 0; i < list.size; ++i)
+        scores[i] = move_order_score(pos, list.moves[i], pv_move, us, killer_ply, tables);
+}
+
+// Partial-selection-sort step: finds the highest-scoring move among
+// list.moves[start .. list.size), swaps it (and its score) into position
+// `start`, and returns it. Repeated calls with start = 0, 1, 2, ... visit
+// moves in the same highest-score-first order order_moves()'s full sort
+// would have produced, but a caller that stops after k picks only does
+// O(k * n) work rather than paying for the full O(n log n) sort up front.
+Move pick_next_move(MoveList& list, int scores[], int start) {
+    int best_i = start;
+    for (int i = start + 1; i < list.size; ++i)
+        if (scores[i] > scores[best_i]) best_i = i;
+    std::swap(list.moves[start], list.moves[best_i]);
+    std::swap(scores[start], scores[best_i]);
+    return list.moves[start];
 }
 
 // Wall-clock deadline enforcement for the search. Checked periodically
@@ -184,10 +218,17 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
         if (stand_pat > alpha) alpha = stand_pat;
     }
 
-    MoveList moves;
+    // In check: every legal move is a candidate, so `list` itself (ordered
+    // in place) is the move set - no need to copy it into a second MoveList,
+    // which would copy all 256 fixed array slots regardless of `size`. Scored
+    // lazily (see score_moves()/pick_next_move()) since a check-evasion node
+    // commonly cuts off after the first move or two.
+    MoveList captures;
+    MoveList* moves;
+    int scores[256];
     if (checked) {
-        moves = list;
-        order_moves(pos, moves, MOVE_NONE, ply, tables);
+        score_moves(pos, list, MOVE_NONE, ply, tables, scores);
+        moves = &list;
     } else {
         struct ScoredCapture { int score; Move move; };
         ScoredCapture scored[256];
@@ -201,11 +242,13 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
         std::sort(scored, scored + n, [](const ScoredCapture& a, const ScoredCapture& b) {
             return a.score > b.score;
         });
-        for (int i = 0; i < n; ++i) moves.add(scored[i].move);
+        for (int i = 0; i < n; ++i) captures.add(scored[i].move);
+        moves = &captures;
     }
 
     StateInfo st;
-    for (Move m : moves) {
+    for (int i = 0; i < moves->size; ++i) {
+        Move m = checked ? pick_next_move(*moves, scores, i) : moves->moves[i];
         pos.do_move(m, st);
         history.push_back(pos.key());
         MoveList child;
@@ -306,14 +349,18 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         if (null_score >= beta) return beta;
     }
 
-    order_moves(pos, list, tt_move, ply, tables);
+    // Scored lazily (see score_moves()/pick_next_move()): most nodes cut off
+    // on a beta cutoff well before the last move, so this avoids paying for
+    // a full sort of moves that are never examined.
+    int scores[256];
+    score_moves(pos, list, tt_move, ply, tables, scores);
 
     int alpha_orig = alpha;
     int best = -INF;
     Move best_move = list.moves[0];
-    int move_index = 0;
     StateInfo st;
-    for (Move m : list) {
+    for (int move_index = 0; move_index < list.size; ++move_index) {
+        Move m = pick_next_move(list, scores, move_index);
         bool capture = is_capture(pos, m);
         MoveFlag mf = flag_of(m);
 
@@ -355,7 +402,6 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
             }
             break;
         }
-        ++move_index;
     }
 
     // Partial (aborted) results are the caller's discarded value, not a real
