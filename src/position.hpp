@@ -1,9 +1,11 @@
 #pragma once
 
 #include "bitboard.hpp"
+#include "eval_tables.hpp"
 #include "move.hpp"
 #include "types.hpp"
 #include "zobrist.hpp"
+#include <algorithm>
 #include <string>
 
 namespace chess {
@@ -57,6 +59,16 @@ public:
     Square king_square(Color c) const { return lsb(pieces(c, KING)); }
     zobrist::Key key() const { return key_; }
 
+    // Incrementally-maintained material+PST sums (White minus Black, before
+    // MG/EG taper) and game-phase weight, kept up to date by put_piece()/
+    // remove_piece() so eval.cpp doesn't have to rescan every piece on the
+    // board on every call. phase() clamps to PHASE_MAX the same way the
+    // from-scratch computation did (relevant only for promotion-heavy
+    // positions with more non-pawn material than either side starts with).
+    int mg_psq() const { return mg_psq_; }
+    int eg_psq() const { return eg_psq_; }
+    int phase() const { return std::min(phase_, PHASE_MAX); }
+
     // Is square `s` attacked by any piece of color `by`, given current occupancy?
     bool square_attacked_by(Square s, Color by) const;
 
@@ -91,6 +103,9 @@ private:
     int halfmove_ = 0;
     int fullmove_ = 1;
     zobrist::Key key_ = 0;
+    int mg_psq_ = 0;
+    int eg_psq_ = 0;
+    int phase_ = 0;
 };
 
 } // namespace chess

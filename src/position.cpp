@@ -13,6 +13,10 @@ void Position::put_piece(Piece p, Square s) {
     by_type_[type_of(p)] |= square_bb(s);
     by_color_[color_of(p)] |= square_bb(s);
     key_ ^= zobrist::psq[p][s];
+
+    mg_psq_ += PSQ_MG[p][s];
+    eg_psq_ += PSQ_EG[p][s];
+    phase_ += PHASE_WEIGHT[type_of(p)];
 }
 
 void Position::remove_piece(Square s) {
@@ -21,6 +25,10 @@ void Position::remove_piece(Square s) {
     by_color_[color_of(p)] &= ~square_bb(s);
     board_[s] = NO_PIECE;
     key_ ^= zobrist::psq[p][s];
+
+    mg_psq_ -= PSQ_MG[p][s];
+    eg_psq_ -= PSQ_EG[p][s];
+    phase_ -= PHASE_WEIGHT[type_of(p)];
 }
 
 namespace {
@@ -119,6 +127,9 @@ bool Position::set(const std::string& fen) {
     for (int c = 0; c < COLOR_NB; ++c) by_color_[c] = 0;
     for (int s = 0; s < SQUARE_NB; ++s) board_[s] = NO_PIECE;
     key_ = 0;
+    mg_psq_ = 0;
+    eg_psq_ = 0;
+    phase_ = 0;
     for (int s = 0; s < SQUARE_NB; ++s) {
         if (new_board[s] != NO_PIECE) put_piece(new_board[s], Square(s));
     }

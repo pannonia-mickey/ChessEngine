@@ -2,7 +2,82 @@
 #include "eval.hpp"
 #include "position.hpp"
 #include "attacks.hpp"
+#include "eval_tables.hpp"
+#include "movegen.hpp"
 using namespace chess;
+
+namespace {
+
+// From-scratch reference for Position's incrementally-maintained mg_psq_/
+// eg_psq_/phase_ accumulators (see Position::put_piece/remove_piece):
+// rescans every piece on the board, mirroring the pre-incremental
+// evaluate() computation this replaced. Any divergence here is an
+// incremental-update bug in position.cpp, not an eval.cpp bug.
+void reference_psq_phase(const Position& pos, int& mg, int& eg, int& phase) {
+    mg = 0;
+    eg = 0;
+    int phase_raw = 0;
+    for (int pt_idx = PAWN; pt_idx < PIECE_TYPE_NB; ++pt_idx) {
+        PieceType pt = static_cast<PieceType>(pt_idx);
+        Bitboard white_pieces = pos.pieces(WHITE, pt);
+        while (white_pieces) {
+            Square s = pop_lsb(white_pieces);
+            Square mirrored = static_cast<Square>(s ^ 56);
+            mg += MG_MATERIAL_VALUE[pt] + MG_PST[pt][mirrored];
+            eg += EG_MATERIAL_VALUE[pt] + EG_PST[pt][mirrored];
+        }
+        Bitboard black_pieces = pos.pieces(BLACK, pt);
+        while (black_pieces) {
+            Square s = pop_lsb(black_pieces);
+            mg -= MG_MATERIAL_VALUE[pt] + MG_PST[pt][s];
+            eg -= EG_MATERIAL_VALUE[pt] + EG_PST[pt][s];
+        }
+        phase_raw += PHASE_WEIGHT[pt] * popcount(pos.pieces(pt));
+    }
+    phase = std::min(phase_raw, PHASE_MAX);
+}
+
+void check_psq_matches_reference(Position& pos) {
+    int ref_mg, ref_eg, ref_phase;
+    reference_psq_phase(pos, ref_mg, ref_eg, ref_phase);
+    CHECK(pos.mg_psq() == ref_mg);
+    CHECK(pos.eg_psq() == ref_eg);
+    CHECK(pos.phase() == ref_phase);
+}
+
+// Walks a several-ply tree of legal moves from `pos`, checking at every node
+// (including after captures, castling, en passant, and promotions) that the
+// incremental accumulators agree with the from-scratch reference.
+void walk_and_check(Position& pos, int depth) {
+    check_psq_matches_reference(pos);
+    if (depth == 0) return;
+    MoveList moves;
+    generate_legal(pos, moves);
+    StateInfo st;
+    for (Move m : moves) {
+        pos.do_move(m, st);
+        walk_and_check(pos, depth - 1);
+        pos.undo_move(m, st);
+    }
+}
+
+} // namespace
+
+TEST_CASE("incremental mg_psq/eg_psq/phase match a from-scratch reference") {
+    attacks::init();
+    struct { const char* fen; int depth; } cases[] = {
+        {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 3},
+        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3},
+        // Promotion-heavy: exercises put_piece/remove_piece with a
+        // promoted piece type, not just the moving pawn's own type.
+        {"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 3},
+    };
+    for (auto& c : cases) {
+        Position p;
+        p.set(c.fen);
+        walk_and_check(p, c.depth);
+    }
+}
 
 TEST_CASE("start position is roughly balanced") {
     attacks::init();
