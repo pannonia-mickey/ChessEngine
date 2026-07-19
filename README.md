@@ -32,9 +32,11 @@ cmake --build build
 This produces the `chess_engine` UCI binary under `build/`, ready to be pointed to by any UCI
 chess GUI (e.g. Arena, CuteChess, Fritz).
 
-On GCC/Clang, the `CHESS_NATIVE_ARCH` and `CHESS_LTO` CMake options (both default `ON`) enable
-`-march=native`/`-mcpu=native` and link-time optimization for extra speed; both are no-ops under
-MSVC.
+The `CHESS_NATIVE_ARCH` and `CHESS_LTO` CMake options (both default `ON`) enable extra
+compile-time speed tuning. On GCC/Clang, `CHESS_NATIVE_ARCH` adds `-march=native`/`-mcpu=native`;
+on MSVC it adds a fixed `/arch:AVX2` instead (MSVC has no host-detecting "native" flag).
+`CHESS_LTO` enables link-time/interprocedural optimization on both toolchains (on MSVC,
+`/GL` + `/LTCG`).
 
 ## Benchmarking
 

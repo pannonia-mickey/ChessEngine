@@ -18,8 +18,10 @@ A projekt célja egy sakkmotor elkészítése a legmodernebb C++ nyelven.
   `./build/chess_tests`.
 - **Egy teszt futtatása:** `./build/chess_tests --test-case="<TEST_CASE neve>"` (doctest szűrő).
 - A `CHESS_BUILD_TESTS` CMake opció (alapból ON) kapcsolja a `chess_tests` targetet.
-- A `CHESS_NATIVE_ARCH` és `CHESS_LTO` CMake opciók (alapból ON, GCC/Clang-en) `-march=native`/
-  `-mcpu=native`-et, illetve LTO-t kapcsolnak be sebesség céljából; MSVC-n mindkettő no-op.
+- A `CHESS_NATIVE_ARCH` és `CHESS_LTO` CMake opciók (alapból ON) sebesség céljából kapcsolnak be
+  extra fordítási optimalizációt: GCC/Clang-en `-march=native`/`-mcpu=native`-et, illetve LTO-t;
+  MSVC-n `CHESS_NATIVE_ARCH` egy rögzített `/arch:AVX2`-t ad (MSVC-nek nincs host-detektáló
+  "native" flagje), `CHESS_LTO` pedig `/GL`+`/LTCG`-t.
 - Warningok: MSVC-n `/W4`, egyébként `-Wall -Wextra` (lásd `CMakeLists.txt`).
 
 ## Architektúra

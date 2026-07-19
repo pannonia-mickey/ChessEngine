@@ -31,11 +31,12 @@ hatásától — ez teszi reprodukálhatóvá.
 - **Fordító/generátor:** MSVC (Visual Studio 18 2026), CMake 4.3.1
 - **Build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build --config Release`
 - **Build flagek:** `/O2 /Ob2 /DNDEBUG` (`CMAKE_CXX_FLAGS_RELEASE`)
-- **Megjegyzés:** a `CHESS_NATIVE_ARCH` / `CHESS_LTO` CMake-kapcsolók
-  `NOT MSVC`-re vannak őrizve, tehát ezen a buildend **no-op**-ok — ez a
-  baseline a sima MSVC `/O2` teljesítményét tükrözi, nem a native-arch/LTO
-  hatását. A -march=native/LTO hatását a GCC/Clang oldalon (pl. Raspberry Pi)
-  kell mérni.
+- **Megjegyzés:** ez a baseline a `CHESS_NATIVE_ARCH` MSVC-ági bevezetése
+  **előtti** állapotot tükrözi. A `CHESS_LTO` valójában már ekkor is aktív
+  volt MSVC-n (a generált `.vcxproj`-ban `WholeProgramOptimization=true`,
+  ami linkeléskor implicit `/LTCG`-t is jelent) — csak a `CHESS_NATIVE_ARCH`
+  volt ténylegesen no-op (nem volt MSVC-ága). Lásd lejjebb az "MSVC +
+  /arch:AVX2" szakaszt a `CHESS_NATIVE_ARCH` MSVC-ági hatásának mérésére.
 - **Commit:** 56c88fb (perf: add NPS bench command, lazy move ordering, and native/LTO build tuning)
 
 ### Determinizmus (node count, 5 egymást követő futás, depth 8)
@@ -62,6 +63,34 @@ Mindkét futás: `Nodes searched : 88602459` (bitre azonos).
 |---|---|---|---|
 | 1 | 139268 | 88602459 | 636201 |
 | 2 | 139837 | 88602459 | 633612 |
+
+## MSVC + /arch:AVX2 (CHESS_NATIVE_ARCH hatása)
+
+A `CHESS_NATIVE_ARCH` mostantól MSVC-n is hatással van: bekapcsolva `/arch:AVX2`-t ad a
+fordítási flagekhez (lásd `CMakeLists.txt`). Az alábbi mérés ugyanazon a gépen és commit-on
+készült, mint a fenti Windows/MSVC baseline, kizárólag a `CHESS_NATIVE_ARCH` be- (jelölt) és
+kikapcsolásával (bázis) — a különbség így kizárólag ennek a kapcsolónak tudható be.
+
+### Node-count paritás (depth 8, 3-3 futás)
+
+Bázis (`CHESS_NATIVE_ARCH=OFF`), mindhárom futás: `Nodes searched : 3360781`
+Jelölt (`CHESS_NATIVE_ARCH=ON`), mindhárom futás: `Nodes searched : 3360781`
+
+A két érték bitre azonos — a keresési fa nem változott.
+
+### Depth 8 NPS összehasonlítás (3-3 futás)
+
+| Konfiguráció | Futás | Idő (ms) | Nodes | NPS |
+|---|---|---|---|---|
+| bázis (OFF) | 1 | 4912 | 3360781 | 684198 |
+| bázis (OFF) | 2 | 4917 | 3360781 | 683502 |
+| bázis (OFF) | 3 | 4918 | 3360781 | 683363 |
+| jelölt (ON) | 1 | 4561 | 3360781 | 736851 |
+| jelölt (ON) | 2 | 4567 | 3360781 | 735883 |
+| jelölt (ON) | 3 | 4572 | 3360781 | 735078 |
+
+**Medián NPS, bázis (OFF):** 683502
+**Medián NPS, jelölt (ON, /arch:AVX2):** 735883
 
 ## Raspberry Pi / GCC baseline
 
