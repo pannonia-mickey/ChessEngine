@@ -3,7 +3,114 @@
 #include "position.hpp"
 #include "attacks.hpp"
 #include "move.hpp"
+#include "movegen.hpp"
 using namespace chess;
+
+namespace {
+
+// Reference (slow but obviously-correct) SEE: recomputes the full attacker
+// set from scratch at every exchange level, instead of maintaining it
+// incrementally with x-ray updates the way src/see.cpp now does. Kept here
+// purely as a test oracle - any divergence from see() below is a bug in the
+// incremental version, not a SEE-algorithm bug.
+Bitboard slow_attackers_to(const Position& pos, Square sq, Bitboard occ) {
+    Bitboard att = 0;
+    att |= pawn_attacks(BLACK, sq) & pos.pieces(WHITE, PAWN);
+    att |= pawn_attacks(WHITE, sq) & pos.pieces(BLACK, PAWN);
+    att |= knight_attacks(sq) & pos.pieces(KNIGHT);
+    att |= king_attacks(sq) & pos.pieces(KING);
+    att |= bishop_attacks(sq, occ) & (pos.pieces(BISHOP) | pos.pieces(QUEEN));
+    att |= rook_attacks(sq, occ) & (pos.pieces(ROOK) | pos.pieces(QUEEN));
+    return att & occ;
+}
+
+int slow_exchange(const Position& pos, Bitboard occ, Color side, Square sq, int captured_value) {
+    Bitboard side_attackers = slow_attackers_to(pos, sq, occ) & pos.pieces(side);
+    if (!side_attackers) return 0;
+
+    PieceType attacker_type = NO_PIECE_TYPE;
+    Square attacker_sq = SQ_NONE;
+    for (int pt = PAWN; pt <= KING; ++pt) {
+        Bitboard b = side_attackers & pos.pieces(side, static_cast<PieceType>(pt));
+        if (b) {
+            attacker_type = static_cast<PieceType>(pt);
+            attacker_sq = lsb(b);
+            break;
+        }
+    }
+
+    Bitboard next_occ = occ & ~square_bb(attacker_sq);
+    int gain = captured_value -
+               slow_exchange(pos, next_occ, Color(side ^ 1), sq, PIECE_VALUE[attacker_type]);
+    return std::max(0, gain);
+}
+
+int slow_see(const Position& pos, Move m) {
+    Square from = from_sq(m);
+    Square to = to_sq(m);
+    MoveFlag mf = flag_of(m);
+
+    Bitboard occ = pos.occupied();
+    occ &= ~square_bb(from);
+
+    int captured_value;
+    if (mf == EN_PASSANT) {
+        captured_value = PIECE_VALUE[PAWN];
+        Square captured_sq = make_square(file_of(to), rank_of(from));
+        occ &= ~square_bb(captured_sq);
+    } else {
+        captured_value = PIECE_VALUE[type_of(pos.piece_on(to))];
+    }
+
+    PieceType attacker_type = type_of(pos.piece_on(from));
+    Color side = Color(pos.side_to_move() ^ 1);
+    return captured_value - slow_exchange(pos, occ, side, to, PIECE_VALUE[attacker_type]);
+}
+
+// see()'s precondition (see.hpp) is a non-promotion capture - production
+// code (search.cpp's move ordering) only ever calls it under that
+// condition, so the parity walk below matches that instead of exercising
+// see() outside its documented contract.
+bool is_plain_capture(const Position& pos, Move m) {
+    if (flag_of(m) == PROMOTION) return false;
+    return flag_of(m) == EN_PASSANT || pos.piece_on(to_sq(m)) != NO_PIECE;
+}
+
+// Walks a several-ply tree of legal moves from `pos`, SEE-checking every
+// non-promotion capture found at every node against the reference.
+void walk_and_check_see(Position& pos, int depth) {
+    MoveList moves;
+    generate_legal(pos, moves);
+    for (Move m : moves) {
+        if (!is_plain_capture(pos, m)) continue;
+        CHECK(see(pos, m) == slow_see(pos, m));
+    }
+    if (depth == 0) return;
+    StateInfo st;
+    for (Move m : moves) {
+        pos.do_move(m, st);
+        walk_and_check_see(pos, depth - 1);
+        pos.undo_move(m, st);
+    }
+}
+
+} // namespace
+
+TEST_CASE("incremental x-ray SEE matches a from-scratch reference") {
+    attacks::init();
+    struct { const char* fen; int depth; } cases[] = {
+        {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 4},
+        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3},
+        {"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1", 4},
+        {"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 3},
+        {"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8", 3},
+    };
+    for (auto& c : cases) {
+        Position p;
+        p.set(c.fen);
+        walk_and_check_see(p, c.depth);
+    }
+}
 
 TEST_CASE("SEE: undefended capture returns the captured piece's value") {
     attacks::init();

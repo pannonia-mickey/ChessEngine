@@ -186,3 +186,47 @@ Depth 12, 1 futás: `Nodes searched : 88602459` (bitre azonos).
 ### Depth 12 (1 futás, megerősítésként)
 
 Idő: 56078 ms, NPS: 1579986
+
+## Fázis 3: SEE attacker-számítás x-ray frissítéssel
+
+A `see()` (`src/see.cpp`) korábban minden `exchange()` rekurziós szinten
+teljesen újraszámolta a támadó bitboardot (`attackers_to`): 2 gyalog-, 1
+huszár-, 1 király- és 2 magic (futó+bástya) lookupot, függetlenül attól,
+hogy melyik figurát vették le az előző szinten. Mostantól a támadóhalmazt
+(`attackers`) egyszer, a `see()` elején számoljuk ki, majd
+`exchange()`-ben inkrementálisan tartjuk karban: a levett figura négyzetét
+kivesszük belőle, és csak akkor futtatunk (legfeljebb egy) magic lookupot
+újra, ha a levett figura ténylegesen egy vonalban (sor/oszlop vagy átló)
+volt a céltérrel `sq`-szal - ez fedheti fel az esetleges x-ray támadót
+mögötte. Gyalog/huszár/király levételekor (a leggyakoribb eset) egyáltalán
+nem fut újra lookup, mivel azok sosem lehetnek x-ray-blokkolók.
+
+Helyesség: `tests/test_see.cpp` "incremental x-ray SEE matches a
+from-scratch reference" - egy do/undo-fán minden csomópontban minden
+nem-promóciós ütést összehasonlít egy megtartott, lépésenként újraszámoló
+referenciaimplementációval (több mint kétmillió assertion). A meglévő
+SEE-tesztek (x-ray felfedés, en passant, veszteséges/egyenlő csere stb.)
+is változatlanul zöldek.
+
+### Node-count paritás
+
+Depth 8, 6 futás: mind a 6: `Nodes searched : 3360781` (bitre azonos).
+Depth 12, 1 futás: `Nodes searched : 88602459` (bitre azonos).
+
+### Depth 8 NPS (6 futás)
+
+| Futás | Idő (ms) | Nodes | NPS |
+|---|---|---|---|
+| 1 | 2094 | 3360781 | 1604957 |
+| 2 | 2090 | 3360781 | 1608029 |
+| 3 | 2090 | 3360781 | 1608029 |
+| 4 | 2091 | 3360781 | 1607260 |
+| 5 | 2096 | 3360781 | 1603426 |
+| 6 | 2090 | 3360781 | 1608029 |
+
+**Medián NPS (depth 8): ~1 607 260** (2. fázis bázis: 1580800 → további
+**~1,7%**; eredeti bázis: 735883 → összesen **~2,18x**)
+
+### Depth 12 (1 futás, megerősítésként)
+
+Idő: 55147 ms, NPS: 1606659
