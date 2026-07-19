@@ -11,10 +11,15 @@ A projekt célja egy sakkmotor elkészítése a legmodernebb C++ nyelven.
 - **Konfigurálás + build:** `cmake -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build`
   (C++23, CMake ≥ 3.20; a doctest keretrendszert a CMake `FetchContent`-en keresztül tölti le).
 - **Motor futtatása (UCI):** `./build/chess_engine`.
+- **NPS benchmark:** `./build/chess_engine bench [depth]` (vagy a `bench` UCI parancs futás
+  közben) — fix pozíciókészleten, fix mélységen lefuttatja a keresést, és kiírja a
+  node-count/idő/NPS összesítőt. Lásd a "Sebességmérés (NPS)" szakaszt lent.
 - **Tesztek futtatása:** `ctest --test-dir build --output-on-failure`, vagy közvetlenül
   `./build/chess_tests`.
 - **Egy teszt futtatása:** `./build/chess_tests --test-case="<TEST_CASE neve>"` (doctest szűrő).
 - A `CHESS_BUILD_TESTS` CMake opció (alapból ON) kapcsolja a `chess_tests` targetet.
+- A `CHESS_NATIVE_ARCH` és `CHESS_LTO` CMake opciók (alapból ON, GCC/Clang-en) `-march=native`/
+  `-mcpu=native`-et, illetve LTO-t kapcsolnak be sebesség céljából; MSVC-n mindkettő no-op.
 - Warningok: MSVC-n `/W4`, egyébként `-Wall -Wextra` (lásd `CMakeLists.txt`).
 
 ## Architektúra
@@ -29,11 +34,15 @@ A projekt célja egy sakkmotor elkészítése a legmodernebb C++ nyelven.
   (`src/zobrist.hpp/.cpp`), FEN import/export, `do_move`/`undo_move`, valamint külön
   null-move alkalmazás/visszavonás a null-move pruninghoz.
 - **Keresés (`src/search.hpp/.cpp`):** iteratív mélyítésű negamax alfa-béta vágással,
-  quiescence kereséssel, transzpozíciós táblával (`src/tt.hpp/.cpp`), null-move pruninggal,
-  late move reduction-nel (LMR), MultiPV támogatással, és `stop`/movetime/node-limit alapján
-  megszakítható kereséssel.
-- **Értékelés (`src/eval.cpp`):** anyagérték + piece-square táblák (PST), a lépő fél
-  szemszögéből, centipawnban.
+  aspiration windows-zal, quiescence kereséssel (SEE-vel szűrt/rendezett ütésekkel),
+  transzpozíciós táblával (`src/tt.hpp/.cpp`), null-move pruninggal, reverse futility
+  pruninggal (RFP), late move reduction-nel (LMR), killer/history heurisztikával rendezett
+  lépésekkel, MultiPV támogatással, és `stop`/movetime/node-limit alapján megszakítható
+  kereséssel.
+- **Értékelés (`src/eval.cpp`):** tapered (middlegame/endgame közt fázis szerint interpolált)
+  anyagérték + piece-square táblák (PST), mobilitás, futópár bónusz, nyitott/félig nyitott
+  vonalon álló bástya bónusz, gyalogfutam (passed pawn) bónusz és király-biztonság (gyalogpajzs),
+  a lépő fél szemszögéből, centipawnban.
 - **Kommunikáció:** a motor a UCI (Universal Chess Interface) protokollon kommunikál
   (`src/uci.hpp/.cpp`): `position`, `go` (depth/movetime/wtime-btime/nodes/searchmoves/infinite/
   ponder), `stop`, `ponderhit`, `setoption` (Hash, Ponder, MultiPV), `debug`, `ucinewgame`.
@@ -54,3 +63,15 @@ A projekt célja egy sakkmotor elkészítése a legmodernebb C++ nyelven.
   build között, nyitókönyvvel; a jelölt csak akkor tartható meg, ha „H1
   accepted” (elfogadott erőnövekedés) születik. Windowson (Git Bash) és
   Linux/Raspberry Pi-n egyaránt fut.
+
+## Sebességmérés (NPS)
+
+- A fenti SPRT-szabály az **erőre** (keresési döntésekre) vonatkozik. A **nyers sebességre**
+  (NPS: ugyanaz a keresési fa, csak gyorsabban — compiler flag, adatstruktúra-tweak,
+  allokáció-csökkentés) más mérce vonatkozik: a `bench` paranccsal (`src/bench.cpp`) mérünk.
+- Egy tisztán sebességi változtatás csak akkor tartható meg, ha a `chess_engine bench <fix depth>`
+  a bázis és a jelölt fán **azonos "Nodes searched" értéket ad** (bitre pontosan — ez bizonyítja,
+  hogy a keresési fa nem változott), **és** a medián NPS (több egymást követő futás alapján)
+  mérhetően nő. Ha a node-count eltér, a változtatás nem sebességi, hanem algoritmikus jellegű,
+  és a fenti SPRT-szabály hatálya alá esik.
+- A jelenlegi baseline és a részletes protokoll: `docs/perf/nps-baseline.md`.
