@@ -97,3 +97,40 @@ A két érték bitre azonos — a keresési fa nem változott.
 Még nincs felvéve. Ha a `CHESS_NATIVE_ARCH`/`CHESS_LTO` kapcsolók hatását
 mérjük, ezt a szakaszt itt kell kitölteni ugyanezzel a protokollal
 (`-march=native`/`-mcpu=native` + LTO ténylegesen aktív ezen a toolchainen).
+
+## Fázis 1: gyors legalitás-szűrő a generate_legal-ban
+
+Az NPS-optimalizáció 1. fázisa a lépésenkénti `do_move`/`square_attacked_by`/
+`undo_move` legalitás-tesztet (`generate_legal`, `src/movegen.cpp`) egy
+csomópontonként egyszer számolt checkers/pinned bitboard-alapú szűrőre
+cserélte. A király-,
+en passant- és sáncolás-lépések változatlanul a pontos do/undo tesztet
+használják; minden más pszeudó-lépést olcsó bitboard-teszt szűr. A kibocsátott
+lépéslista (halmaz és sorrend) bitre azonos maradt — ezt a
+`tests/test_perft.cpp`-beli "fast generate_legal matches do/undo reference"
+regressziós teszt igazolja (a régi do/undo-alapú implementációt referenciaként
+megtartva), a meglévő perft tesztek mellett.
+
+Ugyanazon a gépen mérve, mint a fenti "MSVC + /arch:AVX2" szakasz (baseline
+onnan: medián NPS 735883, `CHESS_NATIVE_ARCH=ON`).
+
+### Node-count paritás
+
+Depth 8, 4 futás: mind a 4: `Nodes searched : 3360781` (bitre azonos a
+baseline-nal).
+Depth 12, 1 futás: `Nodes searched : 88602459` (bitre azonos a baseline-nal).
+
+### Depth 8 NPS (4 futás)
+
+| Futás | Idő (ms) | Nodes | NPS |
+|---|---|---|---|
+| 1 | 2175 | 3360781 | 1545186 |
+| 2 | 2177 | 3360781 | 1543767 |
+| 3 | 2180 | 3360781 | 1541642 |
+| 4 | 2178 | 3360781 | 1543058 |
+
+**Medián NPS (depth 8): ~1 543 767** (bázis: 735883 → **~2.1x**)
+
+### Depth 12 (1 futás, megerősítésként)
+
+Idő: 57645 ms, NPS: 1537036 (bázis: 636201-633612 → **~2.4x**)

@@ -115,18 +115,83 @@ void generate_pseudo(const Position& pos, MoveList& list) {
     generate_castling_moves(pos, list);
 }
 
+namespace {
+
+// Apply/undo `m` in place and report whether the mover's own king survives
+// it - the exact (but expensive) legality test. Used only for the move
+// categories below where a cheaper bitboard test isn't safe: king moves
+// (the king may need to step off the very ray that's checking it, which a
+// static pin/checker mask can't express), en passant (the double removal
+// can reveal a check along the vacated rank that pin detection doesn't
+// model), and castling (already screened by a path-attack check below, this
+// is a final confirmation).
+bool do_undo_is_legal(Position& pos, Move m, Color us, Color them) {
+    StateInfo st;
+    pos.do_move(m, st);
+    bool legal = !pos.square_attacked_by(pos.king_square(us), them);
+    pos.undo_move(m, st);
+    return legal;
+}
+
+} // namespace
+
 void generate_legal(Position& pos, MoveList& list) {
+    Color us = pos.side_to_move();
+    Color them = Color(us ^ 1);
+    Square ksq = pos.king_square(us);
+
+    // Checkers: enemy pieces currently attacking our king. 0 -> not in
+    // check; 1 -> non-king moves must block or capture the checker; 2+ ->
+    // only the king can move (no single move blocks/captures two attackers).
+    Bitboard checkers = pos.attackers_to(ksq, them);
+    int num_checkers = popcount(checkers);
+
+    // Squares a non-king move must land on to resolve a single check:
+    // capture the checker itself, or block the ray between it and the king
+    // (empty/all-ones for a non-slider checker or knight, since there's
+    // nothing to block). Only consulted when num_checkers == 1.
+    Bitboard resolve_check = ~Bitboard(0);
+    if (num_checkers == 1) {
+        Square checker_sq = lsb(checkers);
+        resolve_check = checkers | between_bb(ksq, checker_sq);
+    }
+
+    // Pinned pieces: ours, sitting alone on a ray between our king and an
+    // enemy slider. Found by casting rook/bishop rays from the king as if
+    // our own pieces were transparent (occ_without_us) - any enemy slider
+    // that "sees" the king that way is a potential pinner, and it's a real
+    // pin if exactly one of our pieces lies on the ray between them.
+    Bitboard pinned = 0;
+    Bitboard pin_ray[SQUARE_NB]; // valid only where `pinned` has a set bit
+    {
+        Bitboard our_pieces = pos.pieces(us);
+        Bitboard occ_without_us = pos.occupied() & ~our_pieces;
+        Bitboard bishop_like = pos.pieces(them, BISHOP) | pos.pieces(them, QUEEN);
+        Bitboard rook_like = pos.pieces(them, ROOK) | pos.pieces(them, QUEEN);
+        Bitboard candidates = (bishop_attacks(ksq, occ_without_us) & bishop_like) |
+                               (rook_attacks(ksq, occ_without_us) & rook_like);
+        while (candidates) {
+            Square pinner_sq = pop_lsb(candidates);
+            Bitboard between = between_bb(ksq, pinner_sq);
+            Bitboard blockers = between & our_pieces;
+            if (popcount(blockers) == 1) {
+                Square b = lsb(blockers);
+                pinned |= square_bb(b);
+                pin_ray[b] = between | square_bb(pinner_sq);
+            }
+        }
+    }
+
     MoveList pseudo;
     generate_pseudo(pos, pseudo);
 
-    Color us = pos.side_to_move();
-    Color them = Color(us ^ 1);
-
     for (Move m : pseudo) {
-        if (flag_of(m) == CASTLING) {
+        MoveFlag mf = flag_of(m);
+        Square from = from_sq(m);
+        Square to = to_sq(m);
+
+        if (mf == CASTLING) {
             // The king may not start, pass through, or land on an attacked square.
-            Square from = from_sq(m);
-            Square to = to_sq(m);
             int step = (to > from) ? 1 : -1;
             bool safe = true;
             for (Square s = from;; s = Square(int(s) + step)) {
@@ -136,16 +201,28 @@ void generate_legal(Position& pos, MoveList& list) {
                 }
                 if (s == to) break;
             }
-            if (!safe) continue;
+            if (safe && do_undo_is_legal(pos, m, us, them)) list.add(m);
+            continue;
         }
 
-        // Apply/undo in place instead of deep-copying the whole Position per
-        // candidate move, matching the pattern already used in search.cpp/perft.cpp.
-        StateInfo st;
-        pos.do_move(m, st);
-        bool legal = !pos.square_attacked_by(pos.king_square(us), them);
-        pos.undo_move(m, st);
-        if (legal) list.add(m);
+        if (mf == EN_PASSANT) {
+            if (do_undo_is_legal(pos, m, us, them)) list.add(m);
+            continue;
+        }
+
+        if (from == ksq) {
+            if (do_undo_is_legal(pos, m, us, them)) list.add(m);
+            continue;
+        }
+
+        // Only the king can resolve a double check.
+        if (num_checkers >= 2) continue;
+
+        if (num_checkers == 1 && !(resolve_check & square_bb(to))) continue;
+
+        if ((pinned & square_bb(from)) && !(pin_ray[from] & square_bb(to))) continue;
+
+        list.add(m);
     }
 }
 

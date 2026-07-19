@@ -256,6 +256,18 @@ bool Position::square_attacked_by(Square s, Color by) const {
     return false;
 }
 
+Bitboard Position::attackers_to(Square s, Color by) const {
+    Color opponent = Color(by ^ 1);
+    Bitboard occ = occupied();
+    Bitboard att = 0;
+    att |= pawn_attacks(opponent, s) & pieces(by, PAWN);
+    att |= knight_attacks(s) & pieces(by, KNIGHT);
+    att |= king_attacks(s) & pieces(by, KING);
+    att |= bishop_attacks(s, occ) & (pieces(by, BISHOP) | pieces(by, QUEEN));
+    att |= rook_attacks(s, occ) & (pieces(by, ROOK) | pieces(by, QUEEN));
+    return att;
+}
+
 void Position::do_move(Move m, StateInfo& st) {
     Color us = stm_;
     Square from = from_sq(m);

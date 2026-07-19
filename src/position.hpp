@@ -60,6 +60,12 @@ public:
     // Is square `s` attacked by any piece of color `by`, given current occupancy?
     bool square_attacked_by(Square s, Color by) const;
 
+    // All pieces of color `by` that attack square `s`, given current
+    // occupancy. Unlike square_attacked_by (which short-circuits on the
+    // first hit), this returns the full attacker set - used by move
+    // generation to find checkers/pinners without a boolean-only answer.
+    Bitboard attackers_to(Square s, Color by) const;
+
     // Apply move `m`, saving the state needed to undo it into `st`.
     void do_move(Move m, StateInfo& st);
     // Reverse a previously-applied move `m`, restoring state from `st`.
