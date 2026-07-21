@@ -322,8 +322,10 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
     // return below, which likewise can exceed `beta` on a cutoff.
     constexpr int RFP_MAX_DEPTH = 8;
     constexpr int RFP_MARGIN = 120;
+    int eval = 0;
+    if (!checked && depth <= RFP_MAX_DEPTH)
+        eval = evaluate(pos);
     if (!checked && depth <= RFP_MAX_DEPTH && beta < MATE_THRESHOLD) {
-        int eval = evaluate(pos);
         int margin = RFP_MARGIN * depth;
         if (eval - margin >= beta)
             return eval - margin;
