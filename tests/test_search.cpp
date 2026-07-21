@@ -448,3 +448,80 @@ TEST_CASE("reverse futility pruning does not prevent finding a forced mate") {
     CHECK(r.best == make_move(SQ_E1, SQ_E8));
     CHECK(r.score > 29000);
 }
+
+TEST_CASE("futility pruning cuts nodes in a hopeless quiet position") {
+    attacks::init();
+    // Own zobrist::init() call, matching the RFP node-count test's own
+    // reasoning above: this assertion pins an exact node-count threshold,
+    // which is sensitive to TT hash-slot aliasing and therefore to exactly
+    // which zobrist keys are loaded.
+    zobrist::init();
+    // White is down a full queen against a fully-developed Black army (the
+    // normal "r1bqkbnr/..." test position used elsewhere in this file,
+    // with White's queen removed) - White's static eval is far below any
+    // reasonable alpha at most nodes in the tree, and there are plenty of
+    // quiet king/piece shuffles available to prune, so futility pruning
+    // should fire repeatedly within its depth window.
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNB1K2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 6;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.nodes < 55000); // current master (no futility pruning): 65,699 nodes at this depth
+}
+
+TEST_CASE("futility pruning does not fire while in check") {
+    attacks::init();
+    // Same position as the RFP "does not fire while in check" test: White
+    // Ka1 is in check from Ra8, hugely material-up (queen + rook vs a lone
+    // rook) so a naive static eval clears any reasonable alpha by a wide
+    // margin, but Ka1-b1 is the only legal reply (a2 is still on the
+    // checked a-file; b2 is occupied by White's own pawn). If futility
+    // pruning ever fired here (ignoring the `checked` guard), the search
+    // could skip that forced reply and report the wrong "best" move.
+    Position p; p.set("r3k3/8/8/8/3Q4/8/1P6/K6R w - - 0 1");
+    SearchLimits lim; lim.depth = 3;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_A1, SQ_B1));
+}
+
+TEST_CASE("futility pruning never skips a capture, promotion, or checking move") {
+    attacks::init();
+    zobrist::init();
+    // White: Ke1, Nc3, Rh1 (up a rook and a knight). Black: Ke8, Pb2 - one
+    // step from promoting on b1, an empty square (a non-capturing
+    // promotion, so move ordering doesn't already front-load it the way a
+    // capture would). Root forced to Ke1-d2 via search_moves so Black's
+    // decision happens at ply 1, inside negamax's internal move loop where
+    // futility applies (the root's own move loop never prunes). Without
+    // the "never skip a promotion" exemption, futility pruning would treat
+    // b2-b1=Q as just another quiet move worth skipping once alpha is
+    // established, corrupting the search's view of Black's best defense
+    // and changing the reported score.
+    Position p; p.set("4k3/8/8/8/8/2N5/1p6/4K2R w K - 0 1");
+    SearchLimits lim; lim.depth = 4;
+    lim.search_moves = {make_move(SQ_E1, SQ_D2)};
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    // Measured value with the exemption present (== today's pre-futility
+    // value too, since a correct exemption never changes this particular
+    // line's outcome); an exemption that's missing or narrower than
+    // "capture, promotion, or check" measurably changes this to 776.
+    CHECK(r.score == 803);
+}
+
+TEST_CASE("futility pruning does not prevent finding a forced mate") {
+    attacks::init();
+    // Same mate-in-1 position used by "finds mate in one" above (Re8#),
+    // searched at depth 8 - futility pruning's own depth ceiling - so
+    // every node on the path to the mate is inside its active depth
+    // window. The `alpha > -MATE_THRESHOLD` guard must keep futility
+    // pruning from ever skipping a move that's genuinely hunting a mate
+    // score.
+    Position p; p.set("6k1/5ppp/8/8/8/8/8/4R1K1 w - - 0 1");
+    SearchLimits lim; lim.depth = 8;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_E1, SQ_E8));
+    CHECK(r.score > 29000);
+}

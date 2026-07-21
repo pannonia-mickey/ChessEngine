@@ -322,14 +322,28 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
     // return below, which likewise can exceed `beta` on a cutoff.
     constexpr int RFP_MAX_DEPTH = 8;
     constexpr int RFP_MARGIN = 120;
+    constexpr int FUTILITY_MAX_DEPTH = 8;
+    constexpr int FUTILITY_MARGIN = 150;
     int eval = 0;
-    if (!checked && depth <= RFP_MAX_DEPTH)
+    if (!checked && depth <= std::max(RFP_MAX_DEPTH, FUTILITY_MAX_DEPTH))
         eval = evaluate(pos);
     if (!checked && depth <= RFP_MAX_DEPTH && beta < MATE_THRESHOLD) {
         int margin = RFP_MARGIN * depth;
         if (eval - margin >= beta)
             return eval - margin;
     }
+
+    // Futility pruning: at shallow remaining depth, if the static eval
+    // plus a depth-scaled margin still can't reach alpha, a quiet move
+    // here is extremely unlikely to be the best move, so it's skipped
+    // without recursing into it. Companion to RFP above (same "static eval
+    // is a reliable-enough proxy at shallow depth" assumption, applied
+    // against alpha instead of beta, per move instead of once per node).
+    // Never skips the first move at a node (there must always be at least
+    // one fully-searched move), the TT move, or a capture/promotion/check
+    // (all of which can swing eval by more than a flat margin predicts).
+    bool futility_possible = !checked && depth <= FUTILITY_MAX_DEPTH && alpha > -MATE_THRESHOLD;
+    int futility_score = eval + FUTILITY_MARGIN * depth;
 
     // Null-move pruning: if we could pass the turn entirely and the
     // opponent still can't beat beta at a reduced depth, our own best move
@@ -369,6 +383,17 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         pos.do_move(m, st);
         history.push_back(pos.key());
         bool gives_check = in_check(pos);
+
+        // Decided here (after do_move, not before) so it can reuse
+        // gives_check the same way LMR's own per-move decision does below,
+        // instead of needing a new static "does this move give check"
+        // predicate.
+        if (futility_possible && move_index > 0 && m != tt_move && !capture &&
+            mf != PROMOTION && !gives_check && futility_score <= alpha) {
+            history.pop_back();
+            pos.undo_move(m, st);
+            continue;
+        }
 
         int score;
         // Reduce quiet, non-promoting, non-checking moves searched after the
