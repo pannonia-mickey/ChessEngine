@@ -399,3 +399,40 @@ TEST_CASE("a backward pawn whose stop square is enemy-pawn-controlled scores wor
     // actually feeds through eval.cpp's taper/sign handling).
     CHECK(evaluate(backward) < evaluate(advanced));
 }
+
+namespace {
+void check_pawn_structure_matches_uncached(Position& pos) {
+    int cached_mg, cached_eg, uncached_mg, uncached_eg;
+    pawn_structure(pos, cached_mg, cached_eg);
+    pawn_structure_uncached(pos, uncached_mg, uncached_eg);
+    CHECK(cached_mg == uncached_mg);
+    CHECK(cached_eg == uncached_eg);
+}
+
+void walk_and_check_pawn_structure(Position& pos, int depth) {
+    check_pawn_structure_matches_uncached(pos);
+    if (depth == 0) return;
+    MoveList moves;
+    generate_legal(pos, moves);
+    StateInfo st;
+    for (Move m : moves) {
+        pos.do_move(m, st);
+        walk_and_check_pawn_structure(pos, depth - 1);
+        pos.undo_move(m, st);
+    }
+}
+} // namespace
+
+TEST_CASE("cached pawn_structure matches the uncached computation across a do/undo tree") {
+    attacks::init();
+    struct { const char* fen; int depth; } cases[] = {
+        {"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", 3},
+        {"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1", 3},
+        {"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1", 3},
+    };
+    for (auto& c : cases) {
+        Position p;
+        p.set(c.fen);
+        walk_and_check_pawn_structure(p, c.depth);
+    }
+}

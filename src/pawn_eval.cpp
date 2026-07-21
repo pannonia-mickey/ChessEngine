@@ -4,8 +4,10 @@
 #include "types.hpp"
 #include "bitboard.hpp"
 #include "attacks.hpp"
+#include "zobrist.hpp"
 
 #include <algorithm>
+#include <vector>
 
 namespace chess {
 
@@ -125,14 +127,42 @@ void pawn_structure_for_color(const Position& pos, Color c, int& mg, int& eg) {
     }
 }
 
+struct PawnEntry {
+    zobrist::Key key = 0;
+    int mg = 0;
+    int eg = 0;
+};
+
+// Fixed-size, always-replace, key-verified-on-probe (mirrors
+// TranspositionTable's design in src/tt.hpp/.cpp) - but with no
+// depth/bound fields and no clear(): a pawn structure's score never
+// depends on anything outside the pawn placement it was computed from,
+// so a stored entry stays valid forever, across positions and games.
+constexpr std::size_t PAWN_HASH_SIZE = 1 << 16; // 65536 entries, ~1 MB
+constexpr std::size_t PAWN_HASH_MASK = PAWN_HASH_SIZE - 1;
+std::vector<PawnEntry> pawn_hash_table(PAWN_HASH_SIZE);
+
 } // namespace
 
-void pawn_structure(const Position& pos, int& mg, int& eg) {
+void pawn_structure_uncached(const Position& pos, int& mg, int& eg) {
     int mg_w, eg_w, mg_b, eg_b;
     pawn_structure_for_color(pos, WHITE, mg_w, eg_w);
     pawn_structure_for_color(pos, BLACK, mg_b, eg_b);
     mg = mg_w - mg_b;
     eg = eg_w - eg_b;
+}
+
+void pawn_structure(const Position& pos, int& mg, int& eg) {
+    zobrist::Key key = pos.pawn_key();
+    PawnEntry& entry = pawn_hash_table[key & PAWN_HASH_MASK];
+    if (entry.key == key) {
+        mg = entry.mg;
+        eg = entry.eg;
+        return;
+    }
+
+    pawn_structure_uncached(pos, mg, eg);
+    entry = {key, mg, eg};
 }
 
 } // namespace chess
