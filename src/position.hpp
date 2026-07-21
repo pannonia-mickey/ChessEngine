@@ -59,6 +59,15 @@ public:
     Square king_square(Color c) const { return lsb(pieces(c, KING)); }
     zobrist::Key key() const { return key_; }
 
+    // Zobrist key of just the pawns (same zobrist::psq table as key(), but
+    // XORed only for PAWN pieces), kept incrementally up to date by
+    // put_piece()/remove_piece() alongside key_. A pawn structure's
+    // isolated/doubled/backward/passed-pawn score never depends on any
+    // non-pawn piece, so this key lets src/pawn_eval.cpp's pawn-structure
+    // scoring cache results across positions that share the same pawn
+    // layout.
+    zobrist::Key pawn_key() const { return pawn_key_; }
+
     // Incrementally-maintained material+PST sums (White minus Black, before
     // MG/EG taper) and game-phase weight, kept up to date by put_piece()/
     // remove_piece() so eval.cpp doesn't have to rescan every piece on the
@@ -103,6 +112,7 @@ private:
     int halfmove_ = 0;
     int fullmove_ = 1;
     zobrist::Key key_ = 0;
+    zobrist::Key pawn_key_ = 0;
     int mg_psq_ = 0;
     int eg_psq_ = 0;
     int phase_ = 0;
