@@ -26,6 +26,11 @@ constexpr int PASSED_PAWN_EG[8] = {0, 10, 20, 35, 60, 100, 150, 0};
 constexpr int ISOLATED_MG = -12;
 constexpr int ISOLATED_EG = -18;
 
+// Penalty applied once per extra pawn beyond the first on a file (a
+// 3-pawn stack applies this twice, not once and not three times).
+constexpr int DOUBLED_MG = -8;
+constexpr int DOUBLED_EG = -16;
+
 // Detect whether a pawn is passed: no enemy pawns on the pawn's file or
 // adjacent files ahead of it (in the direction of advancement).
 bool is_passed_pawn(const Position& pos, Color c, Square s) {
@@ -65,6 +70,13 @@ void pawn_structure_for_color(const Position& pos, Color c, int& mg, int& eg) {
         if (is_isolated_pawn(pos, c, s)) {
             mg += ISOLATED_MG;
             eg += ISOLATED_EG;
+        }
+    }
+    for (int f = 0; f < 8; ++f) {
+        int count = popcount(pawns & FILE_BB[f]);
+        if (count > 1) {
+            mg += DOUBLED_MG * (count - 1);
+            eg += DOUBLED_EG * (count - 1);
         }
     }
 }

@@ -330,3 +330,27 @@ TEST_CASE("an isolated pawn scores worse than one with adjacent-file support") {
     Position supported; CHECK(supported.set("k7/8/8/1pp5/3P4/8/2P1P3/K7 w - - 0 1"));
     CHECK(evaluate(isolated) < evaluate(supported));
 }
+
+TEST_CASE("doubled pawns score worse than the same pawn count spread across files") {
+    attacks::init();
+    // Both positions: White Ka1, pawns c2, d2, and a third pawn; Black
+    // Ka8, pawns c6, d6, e6 (block c2/d2/d4/e4 from ever being passed,
+    // and give c2/d2 adjacent-file support so isolation never enters the
+    // comparison - see the FEN comments below for the isolation check).
+    //
+    // "doubled": the third pawn is on d4 - same file as d2, so the
+    // d-file has 2 pawns (1 extra -> one doubled penalty application).
+    // "spread": the third pawn is on e4 instead - c2/d2/e4 are each on
+    // their own file, so no doubled penalty anywhere. d4 and e4 share
+    // the same EG_PST value at this rank (row 4, files d/e both = -7),
+    // so this isn't a PST artifact.
+    //
+    // Neither c2 nor d2 is ever isolated in either position (they
+    // support each other, file-adjacent); the third pawn (d4 or e4) is
+    // supported by c2/d2 in both cases too (d and e are both adjacent
+    // to d2's d-file... e4's neighbor is d, which has d2) - so isolation
+    // doesn't differ between the two positions either.
+    Position doubled; CHECK(doubled.set("k7/8/2ppp3/8/3P4/8/2PP4/K7 w - - 0 1"));
+    Position spread;  CHECK(spread.set("k7/8/2ppp3/8/4P3/8/2PP4/K7 w - - 0 1"));
+    CHECK(evaluate(doubled) < evaluate(spread));
+}
