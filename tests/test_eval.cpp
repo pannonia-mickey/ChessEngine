@@ -4,6 +4,7 @@
 #include "attacks.hpp"
 #include "eval_tables.hpp"
 #include "movegen.hpp"
+#include "pawn_eval.hpp"
 using namespace chess;
 
 namespace {
@@ -163,19 +164,28 @@ TEST_CASE("a centralized knight has higher mobility than one boxed in by its own
     // of this test that put all four "mobile" pawns on rank 2 left a pure
     // PST edge in favor of "mobile" worth +15cp even with mobility() zeroed
     // out - i.e. the CHECK below would still pass with no mobility signal at
-    // all. The ranks chosen below (b4, c4, d2, f4) were picked empirically so
-    // that the PST/taper contribution alone very slightly favors "boxed"
-    // (confirmed: with mobility zeroed, evaluate(boxed) > evaluate(mobile),
-    // 393 > 388), so the real CHECK below only passes because mobility()
-    // contributes its +16 (4 * (8 - 4)) swing in "mobile"'s favor (real
-    // values: evaluate(mobile) = 420, evaluate(boxed) = 409). A knight on c5
-    // attacks a4, a6, b3, b7, d3, d7, e4, e6 (8 squares).
-    Position mobile; mobile.set("4k3/1p1p1p2/8/2N5/1PP2P2/8/3P4/4K3 w - - 0 1");
-    // White pawns on b4, c4, f4, d2; Black pawns on b7, d7, f7. None of the
+    // all. The ranks chosen below (b4, c4, e2, f4) were picked empirically so
+    // that the PST/taper contribution alone very slightly favors "boxed", so
+    // the real CHECK below only passes because mobility() contributes its
+    // +16 (4 * (8 - 4)) swing in "mobile"'s favor. A knight on c5 attacks
+    // a4, a6, b3, b7, d3, d7, e4, e6 (8 squares).
+    //
+    // "mobile"'s fourth pawn sits on e2, not d2: with d2 instead, f4 would
+    // have no White pawn on an adjacent file (e or g) and would score as
+    // isolated (pawn_eval.cpp's isolated-pawn penalty, added after this test
+    // was first written) - a confound working against "mobile" that has
+    // nothing to do with mobility, same category as the passed-pawn and PST
+    // confounds ruled out above. e2 keeps f4 supported by an adjacent-file
+    // pawn (avoiding that confound) while leaving mobility, passed-pawn, and
+    // material-count invariants below unchanged: e2 isn't one of the eight
+    // knight-attack squares (mobility stays 8), and it's still on an e-file
+    // adjacent to Black's d7/f7, so no pawn - White or Black - becomes passed.
+    Position mobile; mobile.set("4k3/1p1p1p2/8/2N5/1PP2P2/8/4P3/4K3 w - - 0 1");
+    // White pawns on b4, c4, f4, e2; Black pawns on b7, d7, f7. None of the
     // White pawns are among the knight's eight attack squares, so all 8
-    // stay reachable (mobility = 8). Every White pawn file (b,c,d,f) is on
+    // stay reachable (mobility = 8). Every White pawn file (b,c,e,f) is on
     // or adjacent to a Black pawn file (b,d,f), and vice versa, so no pawn
-    // is passed. (b4/c4/f4/d2, rather than all-rank-2 or all-rank-4, is what
+    // is passed. (b4/c4/e2/f4, rather than all-rank-2 or all-rank-4, is what
     // gives the PST/taper term its slight tilt toward "boxed" - see above.)
     Position boxed; boxed.set("4k3/1p1p1p2/8/2N5/P3P3/1P1P4/8/4K3 w - - 0 1");
     // White pawns on a4, b3, d3, e4; Black pawns on b7, d7, f7 (same squares
@@ -297,4 +307,26 @@ TEST_CASE("king_safety() adds bonus for pawns on shield squares") {
     Position shielded; CHECK(shielded.set("4k3/8/8/2rqqr2/2RQQR2/8/5PPP/6K1 w - - 0 1"));  // White Kg1 (shielded by f2/g2/h2)
     Position exposed;   CHECK(exposed.set("4k3/8/8/2rqqr2/2RQQR2/8/5PPP/1K6 w - - 0 1"));  // White Kb1 (f2/g2/h2 outside shield zone)
     CHECK(evaluate(shielded) > evaluate(exposed));
+}
+
+TEST_CASE("an isolated pawn scores worse than one with adjacent-file support") {
+    attacks::init();
+    // Both positions: White Ka1, pawns d4 + (b2 or c2), e2; Black Ka8,
+    // pawns b5, c5 (block b2/c2/d4 from ever being passed, on whichever
+    // file the moving pawn sits on). e2 supports d4 in both (so d4's own
+    // isolated/passed/backward status never changes) and is unopposed in
+    // both, so its own passed bonus is identical in both and cancels in
+    // the comparison below.
+    //
+    // "isolated": White's second pawn is on b2 - neighbor files a/c have
+    // no White pawn, so b2 is isolated. d4's own isolated status is
+    // unaffected (still supported by e2).
+    //
+    // "supported": the same pawn sits on c2 instead - directly adjacent
+    // to d4, so neither c2 nor d4 is isolated. b2 and c2 share the same
+    // EG_PST value at this rank (row 6, files b/c both = 8), so this
+    // isn't a PST artifact - the isolated penalty is what decides it.
+    Position isolated;  CHECK(isolated.set("k7/8/8/1pp5/3P4/8/1P2P3/K7 w - - 0 1"));
+    Position supported; CHECK(supported.set("k7/8/8/1pp5/3P4/8/2P1P3/K7 w - - 0 1"));
+    CHECK(evaluate(isolated) < evaluate(supported));
 }

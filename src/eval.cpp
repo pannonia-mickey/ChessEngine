@@ -4,6 +4,7 @@
 #include "bitboard.hpp"
 #include "attacks.hpp"
 #include "eval_tables.hpp"
+#include "pawn_eval.hpp"
 
 #include <algorithm>
 
@@ -83,40 +84,6 @@ int rook_file_bonus(const Position& pos, Color c) {
     return score;
 }
 
-// Detect whether a pawn is passed: no enemy pawns on the pawn's file or
-// adjacent files ahead of it (in the direction of advancement).
-bool is_passed_pawn(const Position& pos, Color c, Square s) {
-    int f = file_of(s), r = rank_of(s);
-    Bitboard enemy_pawns = pos.pieces(Color(c ^ 1), PAWN);
-    for (int nf = std::max(0, f - 1); nf <= std::min(7, f + 1); ++nf) {
-        for (int nr = 0; nr < 8; ++nr) {
-            bool ahead = (c == WHITE) ? (nr > r) : (nr < r);
-            if (!ahead) continue;
-            if (enemy_pawns & square_bb(make_square(nf, nr))) return false;
-        }
-    }
-    return true;
-}
-
-// Bonus by rank (own-perspective: 0 = own back rank, 7 = promotion rank);
-// larger in the endgame, since passed pawns matter most once material
-// thins out and there's less to stop them.
-constexpr int PASSED_PAWN_MG[8] = {0, 5, 10, 15, 25, 40, 60, 0};
-constexpr int PASSED_PAWN_EG[8] = {0, 10, 20, 35, 60, 100, 150, 0};
-
-void passed_pawn_bonus(const Position& pos, Color c, int& mg, int& eg) {
-    mg = 0;
-    eg = 0;
-    Bitboard pawns = pos.pieces(c, PAWN);
-    while (pawns) {
-        Square s = pop_lsb(pawns);
-        if (!is_passed_pawn(pos, c, s)) continue;
-        int rel_rank = (c == WHITE) ? rank_of(s) : 7 - rank_of(s);
-        mg += PASSED_PAWN_MG[rel_rank];
-        eg += PASSED_PAWN_EG[rel_rank];
-    }
-}
-
 // Bonus per own pawn found on the two ranks directly in front of the king,
 // across the king's file and the two adjacent files (clamped at the board
 // edge). MG-only: king safety stops being relevant once enough material
@@ -150,11 +117,10 @@ int evaluate(const Position& pos) {
     int mg_score = pos.mg_psq();
     int eg_score = pos.eg_psq();
 
-    int pp_mg_w, pp_eg_w, pp_mg_b, pp_eg_b;
-    passed_pawn_bonus(pos, WHITE, pp_mg_w, pp_eg_w);
-    passed_pawn_bonus(pos, BLACK, pp_mg_b, pp_eg_b);
-    mg_score += pp_mg_w - pp_mg_b;
-    eg_score += pp_eg_w - pp_eg_b;
+    int pawn_mg, pawn_eg;
+    pawn_structure(pos, pawn_mg, pawn_eg);
+    mg_score += pawn_mg;
+    eg_score += pawn_eg;
     mg_score += king_safety(pos, WHITE) - king_safety(pos, BLACK);
 
     int phase = pos.phase();

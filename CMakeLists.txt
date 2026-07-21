@@ -70,6 +70,7 @@ set(ENGINE_SOURCES
   src/movegen.cpp
   src/perft.cpp
   src/eval.cpp
+  src/pawn_eval.cpp
   src/search.cpp
   src/zobrist.cpp
   src/tt.cpp
