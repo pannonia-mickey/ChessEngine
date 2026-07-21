@@ -6,6 +6,7 @@
 #include "tt.hpp"
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <thread>
 using namespace chess;
 
@@ -524,4 +525,31 @@ TEST_CASE("futility pruning does not prevent finding a forced mate") {
     SearchResult r = search_best_move(p, lim, tt);
     CHECK(r.best == make_move(SQ_E1, SQ_E8));
     CHECK(r.score > 29000);
+}
+
+TEST_CASE("LMR log-based reduction preserves the pre-change best move within a small score tolerance") {
+    attacks::init();
+    zobrist::init();
+    // A middlegame-ish position with enough legal moves and search depth that
+    // LMR reduces many quiet moves across a range of move indices (this file's
+    // usual "r1bqkbnr/..." position, also used by several MultiPV/on_iteration
+    // tests above). Unlike PVS (provably equivalent to full-window alpha-beta),
+    // LMR is a genuine heuristic: a reduced-depth result that doesn't beat
+    // alpha is trusted as-is, never re-searched, so changing the reduction
+    // magnitude can legitimately shift the exact backed-up score by a few
+    // centipawns even when the decision (which move to play) doesn't change -
+    // this is expected, not a correctness bug (that's exactly why CLAUDE.md
+    // requires SPRT, not bit-exact score preservation, for this kind of
+    // change). Baseline measured on master before this change: best e1g1
+    // (O-O), score 59, 53,890 nodes; after adding the log-based reduction
+    // table, score 60 - same move, 1 cp drift. The tolerance below is wide
+    // enough to absorb that kind of expected drift while still catching a
+    // gross correctness bug (e.g. a broken re-search condition), which would
+    // be expected to swing the score by far more than a few centipawns.
+    Position p; p.set("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 1");
+    SearchLimits lim; lim.depth = 6;
+    TranspositionTable tt(16);
+    SearchResult r = search_best_move(p, lim, tt);
+    CHECK(r.best == make_move(SQ_E1, SQ_G1, CASTLING));
+    CHECK(std::abs(r.score - 59) <= 10);
 }
