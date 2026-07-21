@@ -354,3 +354,48 @@ TEST_CASE("doubled pawns score worse than the same pawn count spread across file
     Position spread;  CHECK(spread.set("k7/8/2ppp3/8/4P3/8/2PP4/K7 w - - 0 1"));
     CHECK(evaluate(doubled) < evaluate(spread));
 }
+
+TEST_CASE("a backward pawn whose stop square is enemy-pawn-controlled scores worse than one that isn't") {
+    attacks::init();
+    // Both positions: White Ka1, pawns c6, e6, d2; Black Ka8, pawns f5
+    // (supports whichever e-file square Black's other pawn sits on, so
+    // that pawn is never itself flagged backward or isolated - keeping
+    // this test isolated to White's d2), and a second pawn on e4 or e5.
+    //
+    // "backward": Black's second pawn is on e4, which attacks d3 (d2's
+    // stop square) - d2 has no c/e-file White neighbor at its rank or
+    // behind (c6/e6 are far more advanced), and isn't passed (Black's
+    // e-pawn blocks the e-file), so all three backward conditions hold.
+    //
+    // "advanced": Black's second pawn is on e5 instead - e5 attacks d4
+    // and f4, not d3, so d2's stop square is safe and d2 is not
+    // backward (still not passed either, still blocked by the e-file
+    // pawn).
+    //
+    // Compared via pawn_structure() directly rather than evaluate():
+    // Black's e4/e5 pawn sits on a different rank between the two FENs
+    // (needed so its diagonal reach does/doesn't cover d3), which gives
+    // it a different PST value in each position - in this near-endgame
+    // material this swing (~6 MG / ~5 EG) is large enough on its own to
+    // make evaluate(backward) < evaluate(advanced) even with no backward
+    // penalty at all (confirmed against the pre-backward-penalty
+    // pawn_eval.cpp: the evaluate()-based version of this CHECK already
+    // passed with no is_backward_pawn() in the code). Calling
+    // pawn_structure() - the actual function under test - sidesteps that
+    // PST confound entirely and isolates the backward penalty's effect
+    // on White's d2; White's c6/e6/d2 are otherwise identical between
+    // the two positions (verified: same isolated/passed/doubled status
+    // in both), so mg/eg differ by exactly BACKWARD_MG/BACKWARD_EG.
+    Position backward; CHECK(backward.set("k7/8/2P1P3/5p2/4p3/8/3P4/K7 w - - 0 1"));
+    Position advanced; CHECK(advanced.set("k7/8/2P1P3/4pp2/8/8/3P4/K7 w - - 0 1"));
+    int mg_backward, eg_backward, mg_advanced, eg_advanced;
+    pawn_structure(backward, mg_backward, eg_backward);
+    pawn_structure(advanced, mg_advanced, eg_advanced);
+    CHECK(mg_backward < mg_advanced);
+    CHECK(eg_backward < eg_advanced);
+    // Sanity check that the effect still reaches the real evaluate()
+    // path end-to-end (not discriminating on its own, per the PST-
+    // confound note above, but confirms pawn_structure()'s output
+    // actually feeds through eval.cpp's taper/sign handling).
+    CHECK(evaluate(backward) < evaluate(advanced));
+}

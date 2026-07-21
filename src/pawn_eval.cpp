@@ -3,6 +3,7 @@
 #include "position.hpp"
 #include "types.hpp"
 #include "bitboard.hpp"
+#include "attacks.hpp"
 
 #include <algorithm>
 
@@ -31,6 +32,13 @@ constexpr int ISOLATED_EG = -18;
 constexpr int DOUBLED_MG = -8;
 constexpr int DOUBLED_EG = -16;
 
+// Penalty for a pawn that (a) isn't passed, (b) has no same-color pawn
+// on an adjacent file positioned to ever support it (i.e. at the same
+// or a less advanced rank), and (c) can't safely advance because an
+// enemy pawn controls the square directly ahead.
+constexpr int BACKWARD_MG = -8;
+constexpr int BACKWARD_EG = -12;
+
 // Detect whether a pawn is passed: no enemy pawns on the pawn's file or
 // adjacent files ahead of it (in the direction of advancement).
 bool is_passed_pawn(const Position& pos, Color c, Square s) {
@@ -55,6 +63,38 @@ bool is_isolated_pawn(const Position& pos, Color c, Square s) {
     return (own_pawns & neighbor_files) == 0;
 }
 
+// A pawn of color `by` attacks square `s`? Reverse trick matching
+// Position::square_attacked_by()'s pattern (src/position.cpp), but
+// restricted to pawns only - the backward-pawn definition below
+// specifically means "an enemy pawn controls the stop square", not
+// "any enemy piece".
+bool pawn_attacks_square(const Position& pos, Square s, Color by) {
+    Color opponent = Color(by ^ 1);
+    return (pawn_attacks(opponent, s) & pos.pieces(by, PAWN)) != 0;
+}
+
+// Precondition: `s` is not a passed pawn (the caller checks this first,
+// so this doesn't redundantly recompute is_passed_pawn()).
+bool is_backward_pawn(const Position& pos, Color c, Square s) {
+    int f = file_of(s);
+    int rel_r = (c == WHITE) ? rank_of(s) : 7 - rank_of(s);
+    Bitboard own_pawns = pos.pieces(c, PAWN);
+
+    for (int nf = f - 1; nf <= f + 1; nf += 2) {
+        if (nf < 0 || nf > 7) continue;
+        Bitboard neighbors = own_pawns & FILE_BB[nf];
+        while (neighbors) {
+            Square ns = pop_lsb(neighbors);
+            int neighbor_rel_r = (c == WHITE) ? rank_of(ns) : 7 - rank_of(ns);
+            if (neighbor_rel_r <= rel_r) return false;
+        }
+    }
+
+    Color them = Color(c ^ 1);
+    Square stop_sq = make_square(f, rank_of(s) + (c == WHITE ? 1 : -1));
+    return pawn_attacks_square(pos, stop_sq, them);
+}
+
 void pawn_structure_for_color(const Position& pos, Color c, int& mg, int& eg) {
     mg = 0;
     eg = 0;
@@ -62,10 +102,14 @@ void pawn_structure_for_color(const Position& pos, Color c, int& mg, int& eg) {
     Bitboard scan = pawns;
     while (scan) {
         Square s = pop_lsb(scan);
-        if (is_passed_pawn(pos, c, s)) {
+        bool passed = is_passed_pawn(pos, c, s);
+        if (passed) {
             int rel_rank = (c == WHITE) ? rank_of(s) : 7 - rank_of(s);
             mg += PASSED_PAWN_MG[rel_rank];
             eg += PASSED_PAWN_EG[rel_rank];
+        } else if (is_backward_pawn(pos, c, s)) {
+            mg += BACKWARD_MG;
+            eg += BACKWARD_EG;
         }
         if (is_isolated_pawn(pos, c, s)) {
             mg += ISOLATED_MG;
