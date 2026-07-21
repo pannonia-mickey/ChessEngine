@@ -12,7 +12,8 @@ namespace {
 // splitmix64: a small, fast, fixed-seed PRNG. Fixed seed (not
 // std::random_device) so keys - and therefore TT contents - are reproducible
 // between runs, which matters for debugging search behavior.
-std::uint64_t g_state = 0x9E3779B97F4A7C15ULL;
+constexpr std::uint64_t SEED = 0x9E3779B97F4A7C15ULL;
+std::uint64_t g_state = SEED;
 
 std::uint64_t next() {
     g_state += 0x9E3779B97F4A7C15ULL;
@@ -25,6 +26,17 @@ std::uint64_t next() {
 } // namespace
 
 void init() {
+    // Reset the PRNG to its fixed seed on every call: init() is called
+    // from many independent call sites (production startup, and the top
+    // of most test cases), and without this reset each call would resume
+    // consuming g_state where the previous call left off, silently
+    // producing a different (non-reproducible) key set depending on how
+    // many times init() had already run in this process - contradicting
+    // the "fixed seed... reproducible between runs" comment above. That
+    // drift was observed to change TT hash-slot aliasing enough to shift
+    // search node counts by 6 figures between otherwise identical
+    // searches, depending purely on unrelated tests' run order.
+    g_state = SEED;
     for (int p = 0; p < PIECE_NB; ++p)
         for (int s = 0; s < SQUARE_NB; ++s)
             psq[p][s] = next();

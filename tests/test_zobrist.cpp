@@ -15,6 +15,28 @@ TEST_CASE("same position always hashes to the same key") {
     CHECK(a.key() == b.key());
 }
 
+TEST_CASE("repeated init() calls reproduce the same keys instead of drifting") {
+    // zobrist::init()'s own comment documents the intent: a fixed seed so
+    // keys are reproducible "between runs". init() is called from many
+    // independent call sites (production startup, and the top of most
+    // test cases sharing one process), so "reproducible" has to hold for
+    // repeated in-process calls too, not just once per process - the PRNG
+    // must reset to its seed on every call rather than resuming from
+    // wherever the previous call left off.
+    attacks::init();
+    zobrist::init();
+    Position a; a.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    zobrist::Key key_first_init = a.key();
+
+    // Re-init several more times (simulating other tests/callers sharing
+    // the process) before hashing an identical position again.
+    zobrist::init();
+    zobrist::init();
+    zobrist::init();
+    Position b; b.set("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    CHECK(b.key() == key_first_init);
+}
+
 TEST_CASE("different side to move hashes differently") {
     attacks::init();
     zobrist::init();
