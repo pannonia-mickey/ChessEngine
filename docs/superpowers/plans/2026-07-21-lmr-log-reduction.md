@@ -235,7 +235,7 @@ need retuning, or a revert commit if the change doesn't hold up).
   candidate.
 - Produces: nothing further tasks depend on — this is the final gate for the feature.
 
-- [ ] **Step 1: Confirm SPRT tooling is set up**
+- [x] **Step 1: Confirm SPRT tooling is set up**
 
 ```bash
 ls tools/sprt/fastchess tools/sprt/books
@@ -243,7 +243,7 @@ ls tools/sprt/fastchess tools/sprt/books
 
 If either is missing, run the one-time setup first: `tools/sprt/setup.sh`.
 
-- [ ] **Step 2: Run the SPRT match**
+- [x] **Step 2: Run the SPRT match**
 
 `HEAD` is Task 1's commit; compare against `master` directly (Task 1 is the only
 commit in this change — there is no separate no-op refactor commit to isolate against,
@@ -256,11 +256,16 @@ tools/sprt/run_sprt.sh master HEAD
 This can take anywhere from several minutes to a couple of hours depending on
 hardware; it's safe to run in the background and check back on the output.
 
+**Actual result (divisor 2.25, commit `70c2553`):** ran the full 8000-game budget
+(4000 rounds) without either LLR bound being crossed — `Elo: 1.17 +/- 5.61, nElo: 1.59
++/- 7.61`, `LLR: -0.30 (-10.2%) (-2.94, 2.94) [0.00, 5.00]`. A wash, not "H1 accepted".
+Total time: ~9h05m.
+
 - [ ] **Step 3a: If "H1 accepted" — done**
 
 No further action. The Task 1 commit stands as-is; the change is validated and kept.
 
-- [ ] **Step 3b: If "H0 accepted" (wash or regression) — retune once**
+- [x] **Step 3b: If "H0 accepted" (wash or regression) — retune once**
 
 Edit the two constants in `lmr_reduction()` (from Step 4 of Task 1) to a less
 aggressive divisor, e.g.:
