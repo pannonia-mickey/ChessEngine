@@ -287,7 +287,7 @@ int lmr_reduction(int depth, int move_index) {
         std::array<std::array<std::uint8_t, 256>, MAX_DEPTH + 1> t{};
         for (int d = 1; d <= MAX_DEPTH; ++d)
             for (int m = 1; m < 256; ++m) {
-                int r = static_cast<int>(0.75 + std::log(d) * std::log(m) / 2.5);
+                int r = static_cast<int>(0.75 + std::log(d) * std::log(m) / 2.25);
                 t[d][m] = static_cast<std::uint8_t>(std::max(1, r));
             }
         return t;
