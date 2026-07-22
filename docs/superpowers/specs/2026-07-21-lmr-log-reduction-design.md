@@ -146,15 +146,10 @@ judge. Tests instead assert **decision correctness is preserved**:
 - **New regression test**: a position with a wide-enough branching factor and enough
   search depth that LMR reduces many moves at a variety of move indices and depths
   (`r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq -`, depth 6 — already
-  used elsewhere in the suite), asserting the reported best move is unchanged from
-  today's (pre-change) master value and the score stays within a small tolerance of
-  it. Exact score equality is *not* the right bar here: LMR (unlike PVS) is a genuine
-  heuristic — a reduced-depth result that doesn't beat alpha is trusted as-is, never
-  re-searched — so changing the reduction magnitude can legitimately shift the exact
-  backed-up score by a few centipawns even when the decision doesn't change. This
-  directly exercises the new `lmr_reduction()` table at a range of inputs (move
-  indices well past 4, depths well past 3) without pinning a node count or an
-  unrealistically exact score.
+  used elsewhere in the suite), asserting the reported best move and score are
+  unchanged from today's (pre-change) master values. This directly exercises the new
+  `lmr_reduction()` table at a range of inputs (move indices well past 4, depths well
+  past 3) without pinning a node count.
 - **No direct unit test of `lmr_reduction()` itself**: it stays a private helper in
   `search.cpp`'s anonymous namespace, matching how every other internal search
   constant/helper in this file (`mvv_lva_score`, `move_order_score`, the RFP/futility

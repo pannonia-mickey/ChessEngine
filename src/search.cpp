@@ -1,9 +1,7 @@
 #include "search.hpp"
 
 #include <algorithm>
-#include <array>
 #include <chrono>
-#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -272,29 +270,6 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
     return alpha;
 }
 
-// Log-based LMR reduction: scales with both remaining depth and how far down
-// the ordered move list a move sits, cutting harder the deeper and later a
-// move is (later moves are progressively less likely to be best, per move
-// ordering - see the LMR eligibility comment below, at the do_lmr branch). At
-// depth=3, move_index=4 (LMR's own minimum eligibility point) this evaluates
-// to r=1, i.e. exactly today's flat depth-2 behavior; it only diverges
-// (larger r) as depth and/or move_index grow past that point. Base (0.75) and
-// divisor (2.25) are literature-typical starting constants - see the design
-// spec (docs/superpowers/specs/2026-07-21-lmr-log-reduction-design.md) for the
-// retuning fallback if SPRT rejects them.
-int lmr_reduction(int depth, int move_index) {
-    static const auto table = [] {
-        std::array<std::array<std::uint8_t, 256>, MAX_DEPTH + 1> t{};
-        for (int d = 1; d <= MAX_DEPTH; ++d)
-            for (int m = 1; m < 256; ++m) {
-                int r = static_cast<int>(0.75 + std::log(d) * std::log(m) / 2.25);
-                t[d][m] = static_cast<std::uint8_t>(std::max(1, r));
-            }
-        return t;
-    }();
-    return table[std::min(depth, MAX_DEPTH)][std::min(move_index, 255)];
-}
-
 // Negamax with alpha-beta pruning. Returns a score from the perspective of
 // the side to move at this node. `ply` counts plies from the search root
 // (root is ply 0) and is used only for mate scoring. `nodes` is incremented
@@ -430,9 +405,7 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         bool do_lmr = depth >= 3 && move_index >= 4 && !capture &&
                       mf != PROMOTION && !gives_check && m != tt_move;
         if (do_lmr) {
-            int r = lmr_reduction(depth, move_index);
-            int reduced = std::max(1, depth - 1 - r);
-            score = -negamax(pos, reduced, -alpha - 1, -alpha, ply + 1,
+            score = -negamax(pos, depth - 2, -alpha - 1, -alpha, ply + 1,
                               nodes, tg, tt, tables, history);
             if (score > alpha)
                 score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
