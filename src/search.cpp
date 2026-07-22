@@ -398,20 +398,34 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
         int score;
         // Reduce quiet, non-promoting, non-checking moves searched after the
         // first few (they're least likely to be best, per move ordering).
-        // If the reduced search still beats alpha, it wasn't actually a bad
-        // move, so re-search at full depth before trusting the score - this
-        // re-search is what keeps LMR correctness-preserving: a reduction
-        // only ever costs extra nodes, never a wrong answer.
         bool do_lmr = depth >= 3 && move_index >= 4 && !capture &&
                       mf != PROMOTION && !gives_check && m != tt_move;
-        if (do_lmr) {
-            score = -negamax(pos, depth - 2, -alpha - 1, -alpha, ply + 1,
+        int move_search_depth = do_lmr ? depth - 2 : depth - 1;
+
+        if (move_index == 0) {
+            // Principal Variation Search: the first move at this node is
+            // presumed best by move ordering (TT move / top SEE capture),
+            // so it alone is worth searching with the full window.
+            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
                               nodes, tg, tt, tables, history);
-            if (score > alpha)
+        } else {
+            // Every later move first gets a cheap null-window probe (at
+            // LMR's reduced depth when do_lmr applies) whose only job is
+            // to prove "not better than alpha". Beating alpha means the
+            // probe wasn't conclusive: a reduced-depth probe (do_lmr)
+            // always needs a full-depth look before it can be trusted -
+            // this is what keeps LMR correctness-preserving, a reduction
+            // only ever costs extra nodes, never a wrong answer - while a
+            // full-depth probe that lands strictly inside (alpha, beta)
+            // needs a real full-window re-search for its exact value. A
+            // full-depth probe that already reaches >= beta guarantees a
+            // cutoff at the parent regardless of the move's exact value,
+            // so no re-search is needed for it.
+            score = -negamax(pos, move_search_depth, -alpha - 1, -alpha, ply + 1,
+                              nodes, tg, tt, tables, history);
+            if (score > alpha && (do_lmr || score < beta))
                 score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1,
                                   nodes, tg, tt, tables, history);
-        } else {
-            score = -negamax(pos, depth - 1, -beta, -alpha, ply + 1, nodes, tg, tt, tables, history);
         }
         history.pop_back();
         pos.undo_move(m, st);
@@ -531,17 +545,37 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
                 line_best_score = -INF;
                 Move iter_best_move = line_list.moves[0];
                 int a = alpha;
+                int root_index = 0;
                 StateInfo st;
                 for (Move m : line_list) {
                     pos.do_move(m, st);
                     history.push_back(pos.key());
-                    int score = -negamax(pos, depth - 1, -beta, -a, 1, total_nodes, tg, tt, tables, history);
+                    // Principal Variation Search at the root, mirroring
+                    // negamax's move-loop PVS: only the first root move gets
+                    // the full window; every later one is first refuted with
+                    // a null-window probe, re-searched full-window only when
+                    // it lands strictly inside (a, beta) - a probe already
+                    // >= beta (or <= a, which line_best_score's a-update
+                    // below simply won't raise a for) needs no re-search
+                    // since it doesn't change the root ordering's conclusion.
+                    int score;
+                    if (root_index == 0) {
+                        score = -negamax(pos, depth - 1, -beta, -a, 1,
+                                          total_nodes, tg, tt, tables, history);
+                    } else {
+                        score = -negamax(pos, depth - 1, -a - 1, -a, 1,
+                                          total_nodes, tg, tt, tables, history);
+                        if (score > a && score < beta)
+                            score = -negamax(pos, depth - 1, -beta, -a, 1,
+                                              total_nodes, tg, tt, tables, history);
+                    }
                     history.pop_back();
                     pos.undo_move(m, st);
                     if (tg.aborted) { line_aborted = true; break; }
 
                     if (score > line_best_score) { line_best_score = score; iter_best_move = m; }
                     if (line_best_score > a) a = line_best_score;
+                    ++root_index;
                 }
                 if (line_aborted) break;
 
