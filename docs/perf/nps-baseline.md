@@ -230,3 +230,59 @@ Depth 12, 1 futás: `Nodes searched : 88602459` (bitre azonos).
 ### Depth 12 (1 futás, megerősítésként)
 
 Idő: 55147 ms, NPS: 1606659
+
+## Fázis 4: `generate_legal` in-check állapotának újrahasznosítása
+
+A `generate_legal()` (`src/movegen.cpp`) minden hívásnál kiszámolja a
+`checkers = pos.attackers_to(ksq, them)` bitboardot a resolve-check maszkhoz,
+amiből azonnal adódik, hogy a lépő fél sakkban van-e (`num_checkers > 0`). A
+keresés hívói (`negamax`, `quiescence`, `search_best_move` a
+`src/search.cpp`-ben) emellett külön is lefuttattak egy
+`in_check(pos)`-ot (`Position::square_attacked_by(king_square, them)`)
+ugyanerre a kérdésre - csomópontonként egy teljes, felesleges
+gyalog/huszár/király + 2 magic lookupos szkennelést. A `generate_legal()`
+mostantól egy `bool& in_check_out` out-paraméteren keresztül kiadja ezt az
+állapotot (a régi 2-argumentumos aláírás egy inline wrapperként megmaradt a
+sok nem keresési hívó - tesztek, perft, UCI - kedvéért), és a keresés ezt
+használja a duplikált `in_check(pos)` hívások helyett `negamax`,
+`quiescence` és a gyökér-hívás mind a három helyén. A `gives_check`
+(`negamax`, do_move után, LMR/futility döntéshez) nem duplikátum - egy
+frissen lépett *gyerek* állását kérdezi le, amit a szülő `generate_legal`-ja
+nem tud megadni -, ezért változatlan maradt.
+
+Helyesség: a `generate_legal()` kimenete (mozgáslista és most már az
+in-check bool is) bitre azonos maradt - ezt `tests/test_perft.cpp` "fast
+generate_legal matches do/undo reference" oracle-tesztje és a meglévő perft-
+és keresés-tesztek igazolják.
+
+### Node-count paritás
+
+Depth 8: mindkét fán (bázis és jelölt) `Nodes searched : 1941325` (bitre
+azonos). Depth 10: mindkét fán `9195324`. Depth 12: mindkét fán `48058039`.
+
+Megjegyzés: ez a node-count már nem egyezik a fenti Fázis 1-3 méréseinek
+`3360781`/`88602459` értékeivel - a Fázis 3 óta bekerült keresést/eval-t
+érintő változtatások (futility pruning, gyalogszerkezet-eval stb.) a fát is
+megváltoztatták. A paritás-teszt ezért mindig a *közvetlen* bázis (a
+változtatás előtti HEAD) és a jelölt között értendő, nem egy régebbi
+dokumentált abszolút számhoz képest.
+
+### Depth 8 NPS (interleavelt, 8-8 futás, bázis és jelölt felváltva)
+
+| Bázis medián | Jelölt medián |
+|---|---|
+| 1429550 | 1440696 |
+
+### Depth 10 NPS (interleavelt, 3-3 futás)
+
+| Bázis medián | Jelölt medián |
+|---|---|
+| 1450137 | 1460270 |
+
+### Depth 12 (1-1 futás, megerősítésként)
+
+Bázis: 34086 ms, NPS: 1409905
+Jelölt: 33539 ms, NPS: 1432900
+
+Konzisztensen ~0.7-1.6%-os NPS-növekedés minden mélységen, változatlan
+node-count mellett.

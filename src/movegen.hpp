@@ -22,6 +22,15 @@ void generate_pseudo(const Position& pos, MoveList& list);
 // Generate all legal moves for the side to move. Takes `pos` by non-const
 // reference because it applies/undoes each candidate move in place (via
 // do_move/undo_move) to test king safety, restoring it before returning.
-void generate_legal(Position& pos, MoveList& list);
+// `in_check_out` receives whether the side to move is currently in check -
+// generate_legal() already computes this (as part of its checkers bitboard)
+// to build the resolve-check mask, so callers that would otherwise call
+// Position::square_attacked_by() separately for the same answer can reuse it
+// instead of re-scanning.
+void generate_legal(Position& pos, MoveList& list, bool& in_check_out);
+inline void generate_legal(Position& pos, MoveList& list) {
+    bool ignored;
+    generate_legal(pos, list, ignored);
+}
 
 } // namespace chess

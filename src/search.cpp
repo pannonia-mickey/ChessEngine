@@ -198,7 +198,7 @@ constexpr int MAX_CHECK_EXT = 16;
 // this node (guaranteed non-empty: negamax checks mate/stalemate before
 // calling this). `check_ext` counts consecutive check-evasion extensions
 // leading to this call (see MAX_CHECK_EXT).
-int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
+int quiescence(Position& pos, MoveList& list, bool node_in_check, int alpha, int beta, int ply,
                std::uint64_t& nodes, TimeGuard& tg, SearchTables& tables,
                std::vector<zobrist::Key>& history, int check_ext = 0) {
     ++nodes;
@@ -211,7 +211,7 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
     // While in check, standing pat is unsound (the check might be a real
     // threat - a fork, a mating net - not just noise), so every legal move
     // is searched as a check evasion instead of filtering to captures only.
-    bool checked = in_check(pos) && check_ext < MAX_CHECK_EXT;
+    bool checked = node_in_check && check_ext < MAX_CHECK_EXT;
     int stand_pat = evaluate(pos);
     if (!checked) {
         if (stand_pat >= beta) return beta;
@@ -252,13 +252,14 @@ int quiescence(Position& pos, MoveList& list, int alpha, int beta, int ply,
         pos.do_move(m, st);
         history.push_back(pos.key());
         MoveList child;
-        generate_legal(pos, child);
+        bool child_checked;
+        generate_legal(pos, child, child_checked);
         int score;
         if (child.size == 0) {
-            score = in_check(pos) ? -MATE + (ply + 1) : 0;
+            score = child_checked ? -MATE + (ply + 1) : 0;
         } else {
             int next_ext = checked ? check_ext + 1 : 0;
-            score = -quiescence(pos, child, -beta, -alpha, ply + 1, nodes, tg, tables, history, next_ext);
+            score = -quiescence(pos, child, child_checked, -beta, -alpha, ply + 1, nodes, tg, tables, history, next_ext);
         }
         history.pop_back();
         pos.undo_move(m, st);
@@ -283,15 +284,16 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
     if (tg.expired(nodes)) return 0; // value discarded once aborted
 
     MoveList list;
-    generate_legal(pos, list);
+    bool checked;
+    generate_legal(pos, list, checked);
     if (list.size == 0)
-        return in_check(pos) ? -MATE + ply : 0;
+        return checked ? -MATE + ply : 0;
 
     if (pos.halfmove() >= 100 || is_repetition(history, pos.halfmove(), ply))
         return 0;
 
     if (depth == 0)
-        return quiescence(pos, list, alpha, beta, ply, nodes, tg, tables, history);
+        return quiescence(pos, list, checked, alpha, beta, ply, nodes, tg, tables, history);
 
     Color us = pos.side_to_move();
 
@@ -307,8 +309,6 @@ int negamax(Position& pos, int depth, int alpha, int beta, int ply,
             if (entry->bound == TT_UPPER && tt_score <= alpha) return tt_score;
         }
     }
-
-    bool checked = in_check(pos);
 
     // Reverse futility pruning (static null-move pruning): at shallow
     // remaining depth, if the static eval already clears beta by more than
@@ -448,11 +448,12 @@ SearchResult search_best_move(Position& pos, const SearchLimits& limits, Transpo
     SearchResult result;
 
     MoveList root_list;
-    generate_legal(pos, root_list);
+    bool root_checked;
+    generate_legal(pos, root_list, root_checked);
     if (root_list.size == 0) {
         // Game already over at the root: checkmate or stalemate.
         result.best = MOVE_NONE;
-        result.score = in_check(pos) ? -MATE : 0;
+        result.score = root_checked ? -MATE : 0;
         result.nodes = 1;
         result.depth = 0;
         return result;

@@ -135,7 +135,7 @@ bool do_undo_is_legal(Position& pos, Move m, Color us, Color them) {
 
 } // namespace
 
-void generate_legal(Position& pos, MoveList& list) {
+void generate_legal(Position& pos, MoveList& list, bool& in_check_out) {
     Color us = pos.side_to_move();
     Color them = Color(us ^ 1);
     Square ksq = pos.king_square(us);
@@ -145,6 +145,7 @@ void generate_legal(Position& pos, MoveList& list) {
     // only the king can move (no single move blocks/captures two attackers).
     Bitboard checkers = pos.attackers_to(ksq, them);
     int num_checkers = popcount(checkers);
+    in_check_out = num_checkers > 0;
 
     // Squares a non-king move must land on to resolve a single check:
     // capture the checker itself, or block the ray between it and the king
