@@ -80,6 +80,12 @@ public:
 
     // Is square `s` attacked by any piece of color `by`, given current occupancy?
     bool square_attacked_by(Square s, Color by) const;
+    // Overload against a caller-supplied occupancy instead of occupied() -
+    // used to test king-move legality without mutating the board first (see
+    // generate_legal() in movegen.cpp): pass occupied() with the king's own
+    // origin square cleared, so a slider it would otherwise block is seen
+    // correctly attacking the destination.
+    bool square_attacked_by(Square s, Color by, Bitboard occ) const;
 
     // All pieces of color `by` that attack square `s`, given current
     // occupancy. Unlike square_attacked_by (which short-circuits on the

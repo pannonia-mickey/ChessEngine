@@ -258,13 +258,16 @@ std::string Position::fen() const {
 }
 
 bool Position::square_attacked_by(Square s, Color by) const {
+    return square_attacked_by(s, by, occupied());
+}
+
+bool Position::square_attacked_by(Square s, Color by, Bitboard occ) const {
     // Reverse trick: a pawn of color `by` attacks `s` from the squares that
     // a (hypothetical) opposite-colored pawn on `s` would attack.
     Color opponent = Color(by ^ 1);
     if (pawn_attacks(opponent, s) & pieces(by, PAWN)) return true;
     if (knight_attacks(s) & pieces(by, KNIGHT)) return true;
     if (king_attacks(s) & pieces(by, KING)) return true;
-    Bitboard occ = occupied();
     if (bishop_attacks(s, occ) & (pieces(by, BISHOP) | pieces(by, QUEEN))) return true;
     if (rook_attacks(s, occ) & (pieces(by, ROOK) | pieces(by, QUEEN))) return true;
     return false;

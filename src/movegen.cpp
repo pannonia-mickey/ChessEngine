@@ -119,12 +119,13 @@ namespace {
 
 // Apply/undo `m` in place and report whether the mover's own king survives
 // it - the exact (but expensive) legality test. Used only for the move
-// categories below where a cheaper bitboard test isn't safe: king moves
-// (the king may need to step off the very ray that's checking it, which a
-// static pin/checker mask can't express), en passant (the double removal
-// can reveal a check along the vacated rank that pin detection doesn't
-// model), and castling (already screened by a path-attack check below, this
-// is a final confirmation).
+// categories below where a cheaper bitboard test isn't safe: en passant
+// (the double removal can reveal a check along the vacated rank that pin
+// detection doesn't model), and castling (already screened by a
+// path-attack check below, this is a final confirmation). Ordinary king
+// moves use the cheaper occupied()-minus-origin-square attack query below
+// instead, since that already accounts for a king stepping off the ray
+// that's checking it, without needing a full do/undo.
 bool do_undo_is_legal(Position& pos, Move m, Color us, Color them) {
     StateInfo st;
     pos.do_move(m, st);
@@ -186,6 +187,11 @@ void generate_legal(Position& pos, MoveList& list, bool& in_check_out) {
     MoveList pseudo;
     generate_pseudo(pos, pseudo);
 
+    // Occupancy with the king removed from its own square, so a slider it
+    // would otherwise block is correctly seen attacking the destination
+    // square. Computed once here rather than per king move.
+    Bitboard occ_no_king = pos.occupied() ^ square_bb(ksq);
+
     for (Move m : pseudo) {
         MoveFlag mf = flag_of(m);
         Square from = from_sq(m);
@@ -212,7 +218,7 @@ void generate_legal(Position& pos, MoveList& list, bool& in_check_out) {
         }
 
         if (from == ksq) {
-            if (do_undo_is_legal(pos, m, us, them)) list.add(m);
+            if (!pos.square_attacked_by(to, them, occ_no_king)) list.add(m);
             continue;
         }
 

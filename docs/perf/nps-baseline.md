@@ -286,3 +286,42 @@ Jelölt: 33539 ms, NPS: 1432900
 
 Konzisztensen ~0.7-1.6%-os NPS-növekedés minden mélységen, változatlan
 node-count mellett.
+
+## Fázis 5: gyors király-lépés legalitás occ-trükkel
+
+A Fázis 1-4 optimalizációk a király-, en passant- és sáncolás-lépéseket
+szándékosan a pontos `do_move`/`square_attacked_by`/`undo_move` teszten
+(`do_undo_is_legal`, `src/movegen.cpp`) hagyták - ez minden király-lépésnél
+mutálta és visszaállította az összes bitboard-ot, a `board_[]` tömböt, mindkét
+Zobrist kulcsot és az inkrementális eval-akkumulátorokat. A király rendes
+(nem sáncoló, nem en passant) lépéseinél ez feleslegesen drága: a legalitás
+eldönthető egyetlen `square_attacked_by`-hívással egy olyan occupancy-n,
+amelyből a király saját induló mezőjét kivettük (`occ_no_king`) - így egy
+csúszó figura, amit a király addig blokkolt a saját mezőjén állva, helyesen
+látszik támadni a célmezőt. `Position::square_attacked_by` kapott egy
+occupancy-paraméteres túlterhelését (`src/position.hpp`/`.cpp`), a régi
+(occupied()-et használó) verzió erre delegál. Az en passant és a sáncolás
+változatlanul a pontos do/undo teszten marad (indoklás a kódban).
+
+Helyesség: a teljes tesztlefutás (135 teszt, 2 432 402 assertion, ezen belül
+a `tests/test_perft.cpp`-beli "fast generate_legal matches do/undo reference"
+oracle-teszt) változatlanul zöld maradt a módosítás után.
+
+### Node-count paritás
+
+Depth 8, 5 futás: mind az 5 (bázis és jelölt is): `Nodes searched : 1941325`
+(bitre azonos). Depth 12: mindkét fán `48058039` (bitre azonos).
+
+### Depth 8 NPS (5-5 futás, ugyanazon a gépen, közvetlenül egymás után)
+
+| Bázis medián | Jelölt medián |
+|---|---|
+| 1777770 | 2078506 |
+
+### Depth 12 (1-1 futás, megerősítésként)
+
+Bázis: 26102 ms, NPS: 1841163
+Jelölt: 23776 ms, NPS: 2021283
+
+~17%-os NPS-növekedés depth 8-on, ~9.8%-os depth 12-n, változatlan
+node-count mellett.
