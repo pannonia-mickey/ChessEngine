@@ -11,6 +11,7 @@
 #include <utility>
 #include <vector>
 
+#include "bench.hpp"
 #include "movegen.hpp"
 #include "perft.hpp"
 #include "util.hpp"
@@ -75,6 +76,8 @@ bool Uci::handle_command(std::string_view line) {
         cmd_position(args);
     } else if (command == "go") {
         cmd_go(args);
+    } else if (command == "bench") {
+        cmd_bench(args);
     } else if (command == "d") {
         cmd_display();
     } else if (command == "quit") {
@@ -173,6 +176,20 @@ void Uci::cmd_perft(int depth) {
     out_ << "\nNodes searched: " << total << '\n'
          << "info string time " << elapsed.count() << " ms, " << nps << " nps\n"
          << std::flush;
+}
+
+void Uci::cmd_bench(std::string_view args) {
+    const auto tokens = tokenize(args);
+    int depth = kDefaultBenchDepth;
+    if (!tokens.empty()) {
+        const auto parsed = parse_int(tokens.front());
+        if (!parsed.has_value() || *parsed < 1) {
+            out_ << "info string invalid bench depth " << tokens.front() << '\n' << std::flush;
+            return;
+        }
+        depth = *parsed;
+    }
+    static_cast<void>(run_bench(out_, depth));
 }
 
 void Uci::cmd_display() {

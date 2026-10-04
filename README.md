@@ -18,7 +18,7 @@ Board representation and fully legal move generation are in place; there is no s
 - Legal move generation using check and pin masks; en passant is verified by testing the resulting position.
 - `go perft <depth>` prints the node count per root move (sorted) and the total, verified against the standard [perft results](https://www.chessprogramming.org/Perft_Results).
 
-The UCI loop answers `uci`, `isready`, `ucinewgame`, `position` and `go`, and exits on `quit`. Until search exists, `go` plays the first legal move. `d` prints the board, FEN and hash key. Unknown commands are ignored, as the protocol requires.
+The UCI loop answers `uci`, `isready`, `ucinewgame`, `position` and `go`, and exits on `quit`. Until search exists, `go` plays the first legal move. `d` prints the board, FEN and hash key, and `bench [depth]` runs the fixed benchmark whose node count fingerprints a build (`chessengine bench` does the same from the command line). Unknown commands are ignored, as the protocol requires.
 
 ## Requirements
 
@@ -85,6 +85,18 @@ The unit tests run perft on the six standard positions from the Chess Programmin
 ./build/release/tests/chess_tests "[.deep]"
 ```
 
+## Strength testing (SPRT)
+
+Changes that affect play are tested against `main` with `tools/sprt.py`, which builds both commits, compares their `bench` signatures and runs an SPRT match with [fastchess](https://github.com/Disservin/fastchess) (or cutechess-cli):
+
+```sh
+tools/sprt.py                           # HEAD vs main, gainer bounds [0, 5], 8+0.08
+tools/sprt.py --test simplification     # non-regression bounds [-5, 0]
+tools/sprt.py --tc ltc                  # 40+0.4
+```
+
+The result summary goes into the pull request description. See [docs/sprt.md](docs/sprt.md) for the bounds, time controls, opening book, the `bench` specification and the rules for recording results.
+
 ## Development
 
 - Format code with `clang-format -i` before committing; CI checks formatting with clang-format 18.
@@ -96,4 +108,6 @@ The unit tests run perft on the six standard positions from the Chess Programmin
 src/        engine sources (chess_core library + chessengine executable)
 tests/      Catch2 unit tests
 cmake/      CMake helper modules
+docs/       development documentation (SPRT workflow)
+tools/      development scripts (sprt.py)
 ```
