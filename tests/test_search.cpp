@@ -14,7 +14,8 @@ namespace {
 SearchResult search_to_depth(Position& pos, int depth) {
     SearchLimits limits;
     limits.depth = depth;
-    return search(pos, limits);
+    TranspositionTable tt(1);
+    return search(pos, limits, tt);
 }
 
 std::string best_move(std::string_view fen, int depth) {
@@ -80,7 +81,8 @@ TEST_CASE("search reports every completed iteration", "[search]") {
     SearchLimits limits;
     limits.depth = 4;
     std::vector<int> depths;
-    const SearchResult result = search(pos, limits, {}, [&](const SearchInfo& info) {
+    TranspositionTable tt(1);
+    const SearchResult result = search(pos, limits, tt, {}, [&](const SearchInfo& info) {
         depths.push_back(info.depth);
         CHECK_FALSE(info.pv.empty());
     });
@@ -92,14 +94,15 @@ TEST_CASE("search respects node limits and stop requests", "[search]") {
     Position pos;
     SearchLimits limits;
     limits.nodes = 5000;
-    const SearchResult limited = search(pos, limits);
+    TranspositionTable tt(1);
+    const SearchResult limited = search(pos, limits, tt);
     CHECK_FALSE(limited.best_move.is_null());
     CHECK(limited.nodes <= 5000);
 
     // A stop requested before the search starts still completes the first iteration.
     const std::stop_source source;
     source.request_stop();
-    const SearchResult stopped = search(pos, SearchLimits{}, source.get_token());
+    const SearchResult stopped = search(pos, SearchLimits{}, tt, source.get_token());
     CHECK(stopped.depth == 1);
     CHECK_FALSE(stopped.best_move.is_null());
 }

@@ -8,6 +8,7 @@
 
 #include "position.hpp"
 #include "search.hpp"
+#include "tt.hpp"
 
 namespace chess {
 
@@ -17,6 +18,7 @@ std::uint64_t BenchResult::nps() const {
 
 BenchResult run_bench(std::ostream& out, int depth) {
     BenchResult result;
+    TranspositionTable tt;
     const auto start = std::chrono::steady_clock::now();
     for (std::size_t i = 0; i < kBenchFens.size(); ++i) {
         auto pos = Position::from_fen(kBenchFens[i]);
@@ -25,7 +27,8 @@ BenchResult run_bench(std::ostream& out, int depth) {
         }
         SearchLimits limits;
         limits.depth = depth;
-        const std::uint64_t nodes = search(*pos, limits).nodes;
+        tt.clear();
+        const std::uint64_t nodes = search(*pos, limits, tt).nodes;
         out << "Position " << (i + 1) << '/' << kBenchFens.size() << ": " << kBenchFens[i]
             << "\nNodes: " << nodes << '\n';
         result.nodes += nodes;

@@ -11,6 +11,7 @@
 #include "evaluate.hpp"
 #include "move.hpp"
 #include "position.hpp"
+#include "tt.hpp"
 
 namespace chess {
 
@@ -41,6 +42,8 @@ struct SearchInfo {
     Score score = 0;
     std::uint64_t nodes = 0;
     std::chrono::milliseconds elapsed{0};
+    // Permille of the transposition table filled by this search.
+    int hashfull = 0;
     std::span<const Move> pv;
 };
 
@@ -56,8 +59,9 @@ using InfoCallback = std::function<void(const SearchInfo&)>;
 
 // Searches the position with iterative deepening alpha-beta until a limit is reached or a stop
 // is requested. The first iteration always completes, so a legal move is returned whenever one
-// exists. `pos` is restored before returning.
-[[nodiscard]] SearchResult search(Position& pos, const SearchLimits& limits,
+// exists. `pos` is restored before returning. Results are read from and written to `tt`, which
+// may hold entries from earlier searches.
+[[nodiscard]] SearchResult search(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
                                   std::stop_token stop = {}, const InfoCallback& on_info = {});
 
 // Moves until mate (negative when getting mated) for a mate score, as UCI's "score mate" wants.

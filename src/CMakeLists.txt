@@ -9,6 +9,7 @@ add_library(
   perft.cpp
   position.cpp
   search.cpp
+  tt.cpp
   uci.cpp)
 add_library(chess::core ALIAS chess_core)
 target_include_directories(chess_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

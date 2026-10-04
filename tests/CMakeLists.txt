@@ -18,6 +18,7 @@ add_executable(
   test_perft.cpp
   test_position.cpp
   test_search.cpp
+  test_tt.cpp
   test_uci.cpp)
 target_link_libraries(chess_tests PRIVATE chess::core chess::project_options Catch2::Catch2WithMain)
 chess_enable_clang_tidy(chess_tests)

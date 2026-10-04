@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <istream>
+#include <new>
 #include <optional>
 #include <ostream>
 #include <ranges>
@@ -105,7 +106,7 @@ std::string format_info(const SearchInfo& info) {
     }
     const auto ms = std::max<std::int64_t>(info.elapsed.count(), 1);
     line << " nodes " << info.nodes << " nps " << info.nodes * 1000 / static_cast<std::uint64_t>(ms)
-         << " time " << info.elapsed.count();
+         << " hashfull " << info.hashfull << " time " << info.elapsed.count();
     if (!info.pv.empty()) {
         line << " pv";
     }
@@ -190,6 +191,10 @@ bool Uci::handle_command(std::string_view line) {
 void Uci::cmd_uci() {
     send("id name ChessEngine " CHESS_ENGINE_VERSION);
     send("id author pannonia-mickey");
+    send("option name Hash type spin default " +
+         std::to_string(TranspositionTable::kDefaultSizeMb) + " min " +
+         std::to_string(TranspositionTable::kMinSizeMb) + " max " +
+         std::to_string(TranspositionTable::kMaxSizeMb));
     send("option name Move Overhead type spin default " + std::to_string(kDefaultMoveOverhead) +
          " min 0 max " + std::to_string(kMaxMoveOverhead));
     send("uciok");
@@ -209,7 +214,20 @@ void Uci::cmd_setoption(std::string_view args) {
     }
     const std::string& value = *(value_it + 1);
 
-    if (name == "Move Overhead") {
+    if (name == "Hash") {
+        const auto parsed = parse_int(value);
+        if (parsed.has_value() && std::cmp_greater_equal(*parsed, TranspositionTable::kMinSizeMb) &&
+            std::cmp_less_equal(*parsed, TranspositionTable::kMaxSizeMb)) {
+            try {
+                tt_.resize(static_cast<std::size_t>(*parsed));
+            } catch (const std::bad_alloc&) {
+                tt_.resize(TranspositionTable::kDefaultSizeMb);
+                send("info string not enough memory for Hash " + value + ", using " +
+                     std::to_string(TranspositionTable::kDefaultSizeMb));
+            }
+            return;
+        }
+    } else if (name == "Move Overhead") {
         const auto parsed = parse_int(value);
         if (parsed.has_value() && *parsed >= 0 && *parsed <= kMaxMoveOverhead) {
             move_overhead_ = std::chrono::milliseconds(*parsed);
@@ -225,6 +243,7 @@ void Uci::cmd_isready() {
 
 void Uci::cmd_ucinewgame() {
     position_ = {};
+    tt_.clear();
 }
 
 void Uci::cmd_position(std::string_view args) {
@@ -282,7 +301,7 @@ void Uci::cmd_go(std::string_view args) {
     limits.move_overhead = move_overhead_;
     search_thread_ = std::jthread([this, limits, pos = position_](std::stop_token stop) mutable {
         const SearchResult result =
-            search(pos, limits, std::move(stop),
+            search(pos, limits, tt_, std::move(stop),
                    [this](const SearchInfo& info) { send(format_info(info)); });
         // "0000" when there is no legal move.
         send("bestmove " + result.best_move.to_uci());

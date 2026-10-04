@@ -76,14 +76,38 @@ bool is_tactical(const Position& pos, Move move) {
            (move.type() == MoveType::Promotion && move.promotion() == Queen);
 }
 
+// Mate scores count plies from the root, but a table entry may be reached at a different ply.
+// The table stores them counted from the node instead.
+Score score_to_tt(Score score, std::size_t ply) {
+    const auto plies = static_cast<Score>(ply);
+    if (score >= kMateBound) {
+        return score + plies;
+    }
+    if (score <= -kMateBound) {
+        return score - plies;
+    }
+    return score;
+}
+
+Score score_from_tt(Score score, std::size_t ply) {
+    const auto plies = static_cast<Score>(ply);
+    if (score >= kMateBound) {
+        return score - plies;
+    }
+    if (score <= -kMateBound) {
+        return score + plies;
+    }
+    return score;
+}
+
 class MovePicker {
 public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
     // valuable attacker) and promotions, then quiet moves in generation order.
-    MovePicker(const Position& pos, const MoveList& moves, Move pv_move) {
+    MovePicker(const Position& pos, const MoveList& moves, Move hash_move) {
         for (const Move move : moves) {
             moves_[size_] = move;
-            scores_[size_] = score(pos, move, pv_move);
+            scores_[size_] = score(pos, move, hash_move);
             ++size_;
         }
     }
@@ -105,11 +129,11 @@ public:
     }
 
 private:
-    static int score(const Position& pos, Move move, Move pv_move) {
-        constexpr int kPvBonus = 1'000'000;
+    static int score(const Position& pos, Move move, Move hash_move) {
+        constexpr int kHashBonus = 1'000'000;
         constexpr int kTacticalBonus = 100'000;
-        if (move == pv_move) {
-            return kPvBonus;
+        if (move == hash_move) {
+            return kHashBonus;
         }
         int value = 0;
         if (is_capture(pos, move)) {
@@ -132,15 +156,18 @@ private:
 
 class Searcher {
 public:
-    Searcher(Position& pos, const SearchLimits& limits, std::stop_token stop)
+    Searcher(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
+             std::stop_token stop)
         : pos_(pos),
           limits_(limits),
+          tt_(tt),
           stop_(std::move(stop)),
           start_(Clock::now()),
           budget_(plan_time(limits, pos.side_to_move())) {}
 
     SearchResult run(const InfoCallback& on_info) {
         SearchResult result;
+        tt_.new_search();
         const int max_depth = std::clamp(limits_.depth, 1, kMaxPly - 1);
         for (int depth = 1; depth <= max_depth; ++depth) {
             selective_depth_ = 0;
@@ -160,6 +187,7 @@ public:
                          .score = score,
                          .nodes = nodes_,
                          .elapsed = elapsed(),
+                         .hashfull = tt_.hashfull(),
                          .pv = std::span<const Move>(previous_pv_).first(previous_pv_length_)});
             }
             // From here on the search may be interrupted: a move is known.
@@ -193,6 +221,22 @@ private:
             return evaluate(pos_);
         }
 
+        const Key key = pos_.key();
+        Move tt_move = Move::null();
+        if (const auto entry = tt_.probe(key)) {
+            tt_move = entry->move;
+            // The root always searches, so a best move is known. A position the 50-move rule may
+            // already have drawn is searched too, since the entry cannot know about the rule.
+            if (ply > 0 && entry->depth >= depth && pos_.halfmove_clock() < 100) {
+                const Score score = score_from_tt(entry->score, ply);
+                if (entry->bound == Bound::Exact ||
+                    (entry->bound == Bound::Lower && score >= beta) ||
+                    (entry->bound == Bound::Upper && score <= alpha)) {
+                    return score;
+                }
+            }
+        }
+
         const MoveList moves = generate_legal_moves(pos_);
         if (moves.empty()) {
             return pos_.in_check() ? mated_score(ply) : kDrawScore;
@@ -201,9 +245,12 @@ private:
             return kDrawScore;
         }
 
+        // The previous iteration's PV is followed first along the PV; elsewhere the table's move.
         const Move pv_move = on_pv && ply < previous_pv_length_ ? previous_pv_[ply] : Move::null();
-        MovePicker picker(pos_, moves, pv_move);
+        MovePicker picker(pos_, moves, pv_move.is_null() ? tt_move : pv_move);
+        const Score original_alpha = alpha;
         Score best = -kInfiniteScore;
+        Move best_move = Move::null();
         while (const auto move = picker.next()) {
             pos_.make_move(*move);
             const Score score =
@@ -216,6 +263,7 @@ private:
                 best = score;
                 if (score > alpha) {
                     alpha = score;
+                    best_move = *move;
                     update_pv(ply, *move);
                     if (alpha >= beta) {
                         break;
@@ -223,6 +271,14 @@ private:
                 }
             }
         }
+
+        Bound bound = Bound::Upper;
+        if (best >= beta) {
+            bound = Bound::Lower;
+        } else if (best > original_alpha) {
+            bound = Bound::Exact;
+        }
+        tt_.store(key, best_move, score_to_tt(best, ply), depth, bound);
         return best;
     }
 
@@ -319,6 +375,7 @@ private:
 
     Position& pos_;
     const SearchLimits& limits_;
+    TranspositionTable& tt_;
     std::stop_token stop_;
     Clock::time_point start_;
     TimeBudget budget_;
@@ -338,10 +395,10 @@ private:
 
 }  // namespace
 
-SearchResult search(Position& pos, const SearchLimits& limits, std::stop_token stop,
-                    const InfoCallback& on_info) {
+SearchResult search(Position& pos, const SearchLimits& limits, TranspositionTable& tt,
+                    std::stop_token stop, const InfoCallback& on_info) {
     // The PV tables are large, so the searcher lives on the heap rather than the stack.
-    const auto searcher = std::make_unique<Searcher>(pos, limits, std::move(stop));
+    const auto searcher = std::make_unique<Searcher>(pos, limits, tt, std::move(stop));
     return searcher->run(on_info);
 }
 
