@@ -46,30 +46,52 @@ TEST_CASE_METHOD(UciFixture, "unknown and empty commands are ignored", "[uci]") 
 
 TEST_CASE_METHOD(UciFixture, "position startpos with moves", "[uci][position]") {
     uci.handle_command("position startpos moves e2e4 e7e5 g1f3");
-    CHECK(uci.position().fen.empty());
-    CHECK(uci.position().moves == std::vector<std::string>{"e2e4", "e7e5", "g1f3"});
+    CHECK(uci.position().fen() == "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2");
 }
 
-TEST_CASE_METHOD(UciFixture, "position fen keeps all six fields", "[uci][position]") {
+TEST_CASE_METHOD(UciFixture, "position fen applies moves", "[uci][position]") {
     const std::string fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
     uci.handle_command("position fen " + fen + " moves c7c5");
-    CHECK(uci.position().fen == fen);
-    CHECK(uci.position().moves == std::vector<std::string>{"c7c5"});
+    CHECK(uci.position().fen() == "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2");
 }
 
 TEST_CASE_METHOD(UciFixture, "ucinewgame resets the position", "[uci][position]") {
     uci.handle_command("position startpos moves e2e4");
     uci.handle_command("ucinewgame");
-    CHECK(uci.position().fen.empty());
-    CHECK(uci.position().moves.empty());
+    CHECK(uci.position().fen() == chess::Position::kStartFen);
 }
 
 TEST_CASE_METHOD(UciFixture, "malformed position commands are ignored", "[uci][position]") {
     uci.handle_command("position startpos moves e2e4");
+    const std::string expected = uci.position().fen();
     uci.handle_command("position");
     uci.handle_command("position fen");
+    uci.handle_command("position fen not/a/fen w - - 0 1");
     uci.handle_command("position bogus");
-    CHECK(uci.position().moves == std::vector<std::string>{"e2e4"});
+    uci.handle_command("position startpos moves e2e4 e7e4");
+    CHECK(uci.position().fen() == expected);
+}
+
+TEST_CASE_METHOD(UciFixture, "go perft prints the divide and the node count", "[uci][perft]") {
+    uci.handle_command("position startpos");
+    REQUIRE(uci.handle_command("go perft 2"));
+    const std::string reply = out.str();
+    CHECK(reply.find("e2e4: 20\n") != std::string::npos);
+    CHECK(reply.find("g1f3: 20\n") != std::string::npos);
+    CHECK(reply.find("\nNodes searched: 400\n") != std::string::npos);
+}
+
+TEST_CASE_METHOD(UciFixture, "go plays a legal move, or the null move when there is none",
+                 "[uci]") {
+    uci.handle_command("position fen 7k/5Q2/6K1/8/8/8/8/8 b - - 0 1");  // Stalemate.
+    uci.handle_command("go depth 1");
+    CHECK(out.str() == "bestmove 0000\n");
+}
+
+TEST_CASE_METHOD(UciFixture, "d shows the board and the fen", "[uci]") {
+    uci.handle_command("d");
+    CHECK(out.str().find(std::string("Fen: ") + std::string(chess::Position::kStartFen)) !=
+          std::string::npos);
 }
 
 TEST_CASE("loop processes commands until quit", "[uci]") {

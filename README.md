@@ -10,7 +10,15 @@ A UCI chess engine written in modern C++23.
 
 ## Status
 
-Project skeleton. The UCI loop answers `uci`, `isready`, `ucinewgame`, `position` and `go` (with a placeholder `bestmove 0000`) and exits on `quit`. Unknown commands are ignored, as the protocol requires.
+Board representation and fully legal move generation are in place; there is no search yet.
+
+- Bitboards (one per piece type and color) plus a square-indexed mailbox.
+- Sliding attacks from "fancy" magic bitboards. The magic numbers are not hardcoded: they are searched for at startup with a seeded PRNG (about 40 ms in a release build). Knight, king and pawn attacks and the Zobrist keys are generated at compile time.
+- FEN parsing and output, make/unmake with an undo stack, castling, en passant, promotions, incremental Zobrist hashing.
+- Legal move generation using check and pin masks; en passant is verified by testing the resulting position.
+- `go perft <depth>` prints the node count per root move (sorted) and the total, verified against the standard [perft results](https://www.chessprogramming.org/Perft_Results).
+
+The UCI loop answers `uci`, `isready`, `ucinewgame`, `position` and `go`, and exits on `quit`. Until search exists, `go` plays the first legal move. `d` prints the board, FEN and hash key. Unknown commands are ignored, as the protocol requires.
 
 ## Requirements
 
@@ -58,9 +66,23 @@ uciok
 isready
 readyok
 position startpos moves e2e4
-go
-bestmove 0000
+go perft 1
+a7a5: 1
+a7a6: 1
+...
+g8h6: 1
+
+Nodes searched: 20
+info string time 0 ms, 20000 nps
 quit
+```
+
+## Perft tests
+
+The unit tests run perft on the six standard positions from the Chess Programming Wiki and on a suite of rule edge cases (illegal en passant, castling through check, promotions, stalemate, double check) at depths that keep debug builds fast. Deeper runs (up to 194 million leaves per position) are tagged hidden; run them on a release build:
+
+```sh
+./build/release/tests/chess_tests "[.deep]"
 ```
 
 ## Development
