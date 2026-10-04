@@ -28,6 +28,8 @@ constexpr int kDefaultMovesToGo = 30;
 constexpr std::uint64_t kCheckInterval = 1024;
 // The deepest ply a node can be at; evaluated statically, never expanded.
 constexpr auto kLastPly = static_cast<std::size_t>(kMaxPly - 1);
+// Null move pruning is tried from this remaining depth on.
+constexpr int kNullMoveMinDepth = 3;
 
 struct TimeBudget {
     // No new iteration starts after this.
@@ -64,6 +66,11 @@ bool insufficient_material(const Position& pos) {
         return false;
     }
     return (pos.pieces(Pawn) | pos.pieces(Rook) | pos.pieces(Queen)) == 0;
+}
+
+// Without pieces other than pawns, zugzwang is common and passing the turn is no safe bound.
+bool has_non_pawn_material(const Position& pos, Color color) {
+    return (pos.pieces(color) & ~(pos.pieces(Pawn) | pos.pieces(King))) != 0;
 }
 
 bool is_capture(const Position& pos, Move move) {
@@ -171,7 +178,7 @@ public:
         const int max_depth = std::clamp(limits_.depth, 1, kMaxPly - 1);
         for (int depth = 1; depth <= max_depth; ++depth) {
             selective_depth_ = 0;
-            const Score score = negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true);
+            const Score score = negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true, false);
             if (aborted_) {
                 break;
             }
@@ -205,8 +212,10 @@ public:
     }
 
 private:
+    // `after_null` is set right after a null move, so two are never made in a row.
     // NOLINTNEXTLINE(misc-no-recursion): recursion depth is bounded by kMaxPly.
-    Score negamax(int depth, Score alpha, Score beta, std::size_t ply, bool on_pv) {
+    Score negamax(int depth, Score alpha, Score beta, std::size_t ply, bool on_pv,
+                  bool after_null) {
         pv_length_[ply] = 0;
         if (depth <= 0) {
             return quiescence(alpha, beta, ply);
@@ -238,11 +247,31 @@ private:
         }
 
         const MoveList moves = generate_legal_moves(pos_);
+        const bool in_check = pos_.in_check();
         if (moves.empty()) {
-            return pos_.in_check() ? mated_score(ply) : kDrawScore;
+            return in_check ? mated_score(ply) : kDrawScore;
         }
         if (ply > 0 && pos_.halfmove_clock() >= 100) {
             return kDrawScore;
+        }
+
+        // Null move pruning: if passing the turn still fails high in a reduced search, a real
+        // move almost surely would too. Skipped in check, along the PV, and without pieces
+        // (zugzwang).
+        if (!on_pv && !after_null && !in_check && depth >= kNullMoveMinDepth && beta < kMateBound &&
+            has_non_pawn_material(pos_, pos_.side_to_move()) && evaluate(pos_) >= beta) {
+            const int reduction = 3 + (depth / 4);
+            pos_.make_null_move();
+            const Score score =
+                -negamax(depth - 1 - reduction, -beta, -beta + 1, ply + 1, false, true);
+            pos_.unmake_null_move();
+            if (aborted_) {
+                return 0;
+            }
+            if (score >= beta) {
+                // An unproven mate from a null move search is not trusted.
+                return score >= kMateBound ? beta : score;
+            }
         }
 
         // The previous iteration's PV is followed first along the PV; elsewhere the table's move.
@@ -254,7 +283,7 @@ private:
         while (const auto move = picker.next()) {
             pos_.make_move(*move);
             const Score score =
-                -negamax(depth - 1, -beta, -alpha, ply + 1, on_pv && *move == pv_move);
+                -negamax(depth - 1, -beta, -alpha, ply + 1, on_pv && *move == pv_move, false);
             pos_.unmake_move();
             if (aborted_) {
                 return 0;

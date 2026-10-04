@@ -408,14 +408,50 @@ void Position::make_move(Move move) {
 bool Position::is_repetition() const noexcept {
     // A position can only repeat after both sides have made at least two moves, and never across
     // an irreversible move, which resets the halfmove clock.
+    // A null move is not a real move, so positions before one are not repetitions either.
     const std::size_t plies = history_.size();
     const std::size_t reversible = std::min(plies, static_cast<std::size_t>(halfmove_clock_));
-    for (std::size_t back = 4; back <= reversible; back += 2) {
-        if (history_[plies - back].key == key_) {
+    for (std::size_t back = 1; back <= reversible; ++back) {
+        const UndoInfo& undo = history_[plies - back];
+        if (undo.move.is_null()) {
+            return false;
+        }
+        if (back >= 4 && back % 2 == 0 && undo.key == key_) {
             return true;
         }
     }
     return false;
+}
+
+void Position::make_null_move() {
+    history_.push_back(UndoInfo{.move = Move::null(),
+                                .captured = NoPiece,
+                                .castling = castling_,
+                                .en_passant = en_passant_,
+                                .halfmove_clock = halfmove_clock_,
+                                .key = key_});
+    if (en_passant_ != NoSquare) {
+        key_ ^= zobrist::en_passant(en_passant_);
+        en_passant_ = NoSquare;
+    }
+    ++halfmove_clock_;
+    if (side_to_move_ == Black) {
+        ++fullmove_number_;
+    }
+    side_to_move_ = ~side_to_move_;
+    key_ ^= zobrist::side_to_move();
+}
+
+void Position::unmake_null_move() {
+    const UndoInfo undo = history_.back();
+    history_.pop_back();
+    side_to_move_ = ~side_to_move_;
+    if (side_to_move_ == Black) {
+        --fullmove_number_;
+    }
+    en_passant_ = undo.en_passant;
+    halfmove_clock_ = undo.halfmove_clock;
+    key_ = undo.key;
 }
 
 void Position::unmake_move() {
