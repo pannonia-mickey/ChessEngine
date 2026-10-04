@@ -1,4 +1,12 @@
-add_library(chess_core uci.cpp)
+add_library(
+  chess_core
+  bitboard.cpp
+  magic.cpp
+  move.cpp
+  movegen.cpp
+  perft.cpp
+  position.cpp
+  uci.cpp)
 add_library(chess::core ALIAS chess_core)
 target_include_directories(chess_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(chess_core PRIVATE chess::project_options)

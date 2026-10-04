@@ -1,12 +1,19 @@
 #include "uci.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdint>
 #include <istream>
+#include <optional>
 #include <ostream>
 #include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
+
+#include "movegen.hpp"
+#include "perft.hpp"
+#include "util.hpp"
 
 namespace chess {
 namespace {
@@ -68,6 +75,8 @@ bool Uci::handle_command(std::string_view line) {
         cmd_position(args);
     } else if (command == "go") {
         cmd_go(args);
+    } else if (command == "d") {
+        cmd_display();
     } else if (command == "quit") {
         return false;
     }
@@ -97,31 +106,77 @@ void Uci::cmd_position(std::string_view args) {
     }
 
     const auto moves_it = std::ranges::find(tokens, "moves");
-    PositionCommand position;
+    std::optional<Position> position;
 
     if (tokens.front() == "fen") {
+        std::string fen;
         for (const auto& field : std::ranges::subrange(tokens.begin() + 1, moves_it)) {
-            if (!position.fen.empty()) {
-                position.fen += ' ';
+            if (!fen.empty()) {
+                fen += ' ';
             }
-            position.fen += field;
+            fen += field;
         }
-        if (position.fen.empty()) {
+        position = Position::from_fen(fen);
+        if (!position) {
+            out_ << "info string invalid fen\n" << std::flush;
             return;
         }
-    } else if (tokens.front() != "startpos") {
+    } else if (tokens.front() == "startpos") {
+        position.emplace();
+    } else {
         return;
     }
 
     if (moves_it != tokens.end()) {
-        position.moves.assign(moves_it + 1, tokens.end());
+        for (const auto& text : std::ranges::subrange(moves_it + 1, tokens.end())) {
+            const auto move = parse_uci_move(*position, text);
+            if (!move) {
+                out_ << "info string illegal move " << text << '\n' << std::flush;
+                return;
+            }
+            position->make_move(*move);
+        }
     }
-    position_ = std::move(position);
+    position_ = std::move(*position);
 }
 
-void Uci::cmd_go(std::string_view /*args*/) {
-    // Placeholder until move generation and search exist: "0000" is the UCI null move.
-    out_ << "bestmove 0000\n" << std::flush;
+void Uci::cmd_go(std::string_view args) {
+    const auto tokens = tokenize(args);
+    if (tokens.size() >= 2 && tokens[0] == "perft") {
+        const auto depth = parse_int(tokens[1]);
+        if (depth.has_value() && *depth >= 1) {
+            cmd_perft(*depth);
+        }
+        return;
+    }
+
+    // Placeholder until search exists: play the first legal move ("0000" when there is none).
+    const MoveList moves = generate_legal_moves(position_);
+    const Move best = moves.empty() ? Move::null() : moves[0];
+    out_ << "bestmove " << best.to_uci() << '\n' << std::flush;
+}
+
+void Uci::cmd_perft(int depth) {
+    const auto start = std::chrono::steady_clock::now();
+    auto entries = perft_divide(position_, depth);
+    // Sorted output is easy to diff against other engines when hunting a move generation bug.
+    std::ranges::sort(entries, {}, [](const PerftEntry& entry) { return entry.move.to_uci(); });
+    std::uint64_t total = 0;
+    for (const auto& [move, nodes] : entries) {
+        out_ << move.to_uci() << ": " << nodes << '\n';
+        total += nodes;
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    const auto nps =
+        total * 1000 / static_cast<std::uint64_t>(std::max<std::int64_t>(elapsed.count(), 1));
+    out_ << "\nNodes searched: " << total << '\n'
+         << "info string time " << elapsed.count() << " ms, " << nps << " nps\n"
+         << std::flush;
+}
+
+void Uci::cmd_display() {
+    out_ << position_.pretty() << std::flush;
 }
 
 }  // namespace chess
