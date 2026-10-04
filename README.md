@@ -10,15 +10,18 @@ A UCI chess engine written in modern C++23.
 
 ## Status
 
-Board representation and fully legal move generation are in place; there is no search yet.
+Board representation, fully legal move generation and a basic search and evaluation are in place.
 
 - Bitboards (one per piece type and color) plus a square-indexed mailbox.
 - Sliding attacks from "fancy" magic bitboards. The magic numbers are not hardcoded: they are searched for at startup with a seeded PRNG (about 40 ms in a release build). Knight, king and pawn attacks and the Zobrist keys are generated at compile time.
 - FEN parsing and output, make/unmake with an undo stack, castling, en passant, promotions, incremental Zobrist hashing.
 - Legal move generation using check and pin masks; en passant is verified by testing the resulting position.
+- Search: negamax alpha-beta with iterative deepening, quiescence search on captures and queen promotions (all evasions when in check), principal variation move first and MVV-LVA ordering for captures. Repetitions, the fifty-move rule and insufficient material are scored as draws.
+- Evaluation: material and piece-square tables tapered between middlegame and endgame by game phase, with PeSTO's values.
+- Time management for `wtime`/`btime`/`winc`/`binc`/`movestogo`, `movetime`, `depth`, `nodes` and `infinite`; the search runs on its own thread, so `stop` and `isready` are answered while it thinks.
 - `go perft <depth>` prints the node count per root move (sorted) and the total, verified against the standard [perft results](https://www.chessprogramming.org/Perft_Results).
 
-The UCI loop answers `uci`, `isready`, `ucinewgame`, `position` and `go`, and exits on `quit`. Until search exists, `go` plays the first legal move. `d` prints the board, FEN and hash key, and `bench [depth]` runs the fixed benchmark whose node count fingerprints a build (`chessengine bench` does the same from the command line). Unknown commands are ignored, as the protocol requires.
+The UCI loop answers `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go` and `stop`, and exits on `quit`. `go` reports `info depth … seldepth … score cp|mate … nodes … nps … time … pv …` after each iteration, then `bestmove`. The only option is `Move Overhead` (ms reserved per move for communication delays, default 10). `d` prints the board, FEN and hash key, and `bench [depth]` runs the fixed benchmark whose node count fingerprints a build (`chessengine bench` does the same from the command line). Unknown commands are ignored, as the protocol requires.
 
 ## Requirements
 

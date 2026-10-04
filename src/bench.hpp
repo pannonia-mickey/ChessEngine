@@ -12,10 +12,9 @@ namespace chess {
 // the same "bench" node count walk the same tree. Its nodes-per-second figure is a rough speed
 // measure for comparing builds on the same machine.
 //
-// Until search exists the workload is a perft of every bench position; once search lands it
-// becomes a fixed-depth search of the same positions, and the default depth is retuned.
+// The workload is a fixed-depth search of every bench position, each from a fresh state.
 
-inline constexpr int kDefaultBenchDepth = 5;
+inline constexpr int kDefaultBenchDepth = 6;
 
 inline constexpr std::array<std::string_view, 12> kBenchFens = {
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",

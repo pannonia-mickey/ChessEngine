@@ -1,5 +1,6 @@
 #include "position.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cassert>
 #include <cstddef>
@@ -402,6 +403,19 @@ void Position::make_move(Move move) {
     if (type_of(piece_on(to)) == Pawn && (from ^ to) == 16) {
         set_en_passant(offset(from, pawn_push(us)));
     }
+}
+
+bool Position::is_repetition() const noexcept {
+    // A position can only repeat after both sides have made at least two moves, and never across
+    // an irreversible move, which resets the halfmove clock.
+    const std::size_t plies = history_.size();
+    const std::size_t reversible = std::min(plies, static_cast<std::size_t>(halfmove_clock_));
+    for (std::size_t back = 4; back <= reversible; back += 2) {
+        if (history_[plies - back].key == key_) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void Position::unmake_move() {

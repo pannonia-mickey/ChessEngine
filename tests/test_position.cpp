@@ -147,3 +147,22 @@ TEST_CASE("check detection", "[position]") {
     CHECK(pos.checkers() == square_bb(E2));
     CHECK_FALSE(Position().in_check());
 }
+
+TEST_CASE("repetitions are detected since the last irreversible move", "[position]") {
+    Position pos;
+    for (const auto* const move : {"g1f3", "g8f6", "f3g1"}) {
+        pos.make_move(test::legal_move(pos, move));
+        CHECK_FALSE(pos.is_repetition());
+    }
+    pos.make_move(test::legal_move(pos, "f6g8"));
+    CHECK(pos.is_repetition());
+
+    // A pawn move makes the earlier positions unreachable.
+    pos.make_move(test::legal_move(pos, "e2e4"));
+    for (const auto* const move : {"g8f6", "g1f3", "f6g8", "f3g1"}) {
+        pos.make_move(test::legal_move(pos, move));
+    }
+    CHECK(pos.is_repetition());
+    pos.unmake_move();
+    CHECK_FALSE(pos.is_repetition());
+}

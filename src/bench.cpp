@@ -6,8 +6,8 @@
 #include <cstdint>
 #include <ostream>
 
-#include "perft.hpp"
 #include "position.hpp"
+#include "search.hpp"
 
 namespace chess {
 
@@ -23,7 +23,9 @@ BenchResult run_bench(std::ostream& out, int depth) {
         if (!pos.has_value()) {
             continue;  // Unreachable: the bench positions are verified by the unit tests.
         }
-        const std::uint64_t nodes = perft(*pos, depth);
+        SearchLimits limits;
+        limits.depth = depth;
+        const std::uint64_t nodes = search(*pos, limits).nodes;
         out << "Position " << (i + 1) << '/' << kBenchFens.size() << ": " << kBenchFens[i]
             << "\nNodes: " << nodes << '\n';
         result.nodes += nodes;

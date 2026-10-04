@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
         std::istringstream no_input;
         chess::Uci uci(no_input, std::cout);
         uci.handle_command(command);
+        uci.wait();
         return 0;
     }
 

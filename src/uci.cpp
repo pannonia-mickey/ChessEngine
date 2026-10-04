@@ -7,13 +7,16 @@
 #include <optional>
 #include <ostream>
 #include <ranges>
+#include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "bench.hpp"
 #include "movegen.hpp"
 #include "perft.hpp"
+#include "search.hpp"
 #include "util.hpp"
 
 namespace chess {
@@ -50,26 +53,125 @@ std::vector<std::string> tokenize(std::string_view text) {
     return tokens;
 }
 
+constexpr int kDefaultMoveOverhead = 10;
+constexpr int kMaxMoveOverhead = 5000;
+
+// Parses the arguments of "go" into search limits. Unknown or malformed fields are skipped.
+SearchLimits parse_go(const std::vector<std::string>& tokens) {
+    SearchLimits limits;
+    const auto value_after = [&](std::size_t& i) -> std::optional<int> {
+        if (i + 1 >= tokens.size()) {
+            return std::nullopt;
+        }
+        return parse_int(tokens[++i]);
+    };
+    const auto set_ms = [](std::optional<int> value, auto& field) {
+        if (value.has_value()) {
+            field = std::chrono::milliseconds(*value);
+        }
+    };
+    for (std::size_t i = 0; i < tokens.size(); ++i) {
+        const std::string& key = tokens[i];
+        if (key == "wtime") {
+            set_ms(value_after(i), limits.time[White]);
+        } else if (key == "btime") {
+            set_ms(value_after(i), limits.time[Black]);
+        } else if (key == "winc") {
+            set_ms(value_after(i), limits.increment[White]);
+        } else if (key == "binc") {
+            set_ms(value_after(i), limits.increment[Black]);
+        } else if (key == "movetime") {
+            set_ms(value_after(i), limits.move_time);
+        } else if (key == "movestogo") {
+            limits.moves_to_go = value_after(i).value_or(0);
+        } else if (key == "depth") {
+            limits.depth = std::max(value_after(i).value_or(limits.depth), 1);
+        } else if (key == "nodes") {
+            limits.nodes = static_cast<std::uint64_t>(std::max(value_after(i).value_or(0), 0));
+        } else if (key == "infinite") {
+            limits.infinite = true;
+        }
+    }
+    return limits;
+}
+
+std::string format_info(const SearchInfo& info) {
+    std::ostringstream line;
+    line << "info depth " << info.depth << " seldepth " << info.selective_depth << " score ";
+    if (is_mate_score(info.score)) {
+        line << "mate " << mate_in_moves(info.score);
+    } else {
+        line << "cp " << info.score;
+    }
+    const auto ms = std::max<std::int64_t>(info.elapsed.count(), 1);
+    line << " nodes " << info.nodes << " nps " << info.nodes * 1000 / static_cast<std::uint64_t>(ms)
+         << " time " << info.elapsed.count();
+    if (!info.pv.empty()) {
+        line << " pv";
+    }
+    for (const Move move : info.pv) {
+        line << ' ' << move.to_uci();
+    }
+    return line.str();
+}
+
 }  // namespace
 
-Uci::Uci(std::istream& in, std::ostream& out) : in_(in), out_(out) {}
+Uci::Uci(std::istream& in, std::ostream& out)
+    : in_(in), out_(out), move_overhead_(kDefaultMoveOverhead) {}
+
+Uci::~Uci() {
+    stop_search();
+}
 
 void Uci::loop() {
     std::string line;
     while (std::getline(in_, line)) {
         if (!handle_command(line)) {
-            break;
+            stop_search();
+            return;
         }
     }
+    wait();
+}
+
+void Uci::wait() {
+    if (search_thread_.joinable()) {
+        search_thread_.join();
+    }
+}
+
+void Uci::stop_search() {
+    search_thread_.request_stop();
+    wait();
+}
+
+void Uci::send(std::string_view line) {
+    const std::scoped_lock lock(out_mutex_);
+    out_ << line << '\n' << std::flush;
 }
 
 bool Uci::handle_command(std::string_view line) {
     const auto [command, args] = split_first(line);
 
+    // Commands answered while searching; every other one waits for the search to stop.
+    if (command == "isready") {
+        cmd_isready();
+        return true;
+    }
+    if (command == "stop" || command == "quit") {
+        stop_search();
+        return command != "quit";
+    }
+    if (command.empty() || command == "ponderhit") {
+        return true;
+    }
+    stop_search();
+
     if (command == "uci") {
         cmd_uci();
-    } else if (command == "isready") {
-        cmd_isready();
+    } else if (command == "setoption") {
+        cmd_setoption(args);
     } else if (command == "ucinewgame") {
         cmd_ucinewgame();
     } else if (command == "position") {
@@ -80,22 +182,45 @@ bool Uci::handle_command(std::string_view line) {
         cmd_bench(args);
     } else if (command == "d") {
         cmd_display();
-    } else if (command == "quit") {
-        return false;
     }
-    // The UCI specification requires unknown commands (and "stop" while idle) to be ignored.
+    // The UCI specification requires unknown commands to be ignored.
     return true;
 }
 
 void Uci::cmd_uci() {
-    out_ << "id name ChessEngine " CHESS_ENGINE_VERSION "\n"
-         << "id author pannonia-mickey\n"
-         << "uciok\n"
-         << std::flush;
+    send("id name ChessEngine " CHESS_ENGINE_VERSION);
+    send("id author pannonia-mickey");
+    send("option name Move Overhead type spin default " + std::to_string(kDefaultMoveOverhead) +
+         " min 0 max " + std::to_string(kMaxMoveOverhead));
+    send("uciok");
+}
+
+void Uci::cmd_setoption(std::string_view args) {
+    // setoption name <id> [value <x>], where the name may contain spaces.
+    const auto tokens = tokenize(args);
+    const auto name_it = std::ranges::find(tokens, "name");
+    const auto value_it = std::ranges::find(tokens, "value");
+    if (name_it == tokens.end() || value_it == tokens.end() || value_it + 1 == tokens.end()) {
+        return;
+    }
+    std::string name;
+    for (const auto& word : std::ranges::subrange(name_it + 1, value_it)) {
+        name += (name.empty() ? "" : " ") + word;
+    }
+    const std::string& value = *(value_it + 1);
+
+    if (name == "Move Overhead") {
+        const auto parsed = parse_int(value);
+        if (parsed.has_value() && *parsed >= 0 && *parsed <= kMaxMoveOverhead) {
+            move_overhead_ = std::chrono::milliseconds(*parsed);
+            return;
+        }
+    }
+    send("info string invalid option " + name + " value " + value);
 }
 
 void Uci::cmd_isready() {
-    out_ << "readyok\n" << std::flush;
+    send("readyok");
 }
 
 void Uci::cmd_ucinewgame() {
@@ -153,10 +278,15 @@ void Uci::cmd_go(std::string_view args) {
         return;
     }
 
-    // Placeholder until search exists: play the first legal move ("0000" when there is none).
-    const MoveList moves = generate_legal_moves(position_);
-    const Move best = moves.empty() ? Move::null() : moves[0];
-    out_ << "bestmove " << best.to_uci() << '\n' << std::flush;
+    SearchLimits limits = parse_go(tokens);
+    limits.move_overhead = move_overhead_;
+    search_thread_ = std::jthread([this, limits, pos = position_](std::stop_token stop) mutable {
+        const SearchResult result =
+            search(pos, limits, std::move(stop),
+                   [this](const SearchInfo& info) { send(format_info(info)); });
+        // "0000" when there is no legal move.
+        send("bestmove " + result.best_move.to_uci());
+    });
 }
 
 void Uci::cmd_perft(int depth) {

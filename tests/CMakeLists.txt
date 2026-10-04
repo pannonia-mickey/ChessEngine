@@ -10,7 +10,15 @@ FetchContent_Declare(
   FIND_PACKAGE_ARGS 3)
 FetchContent_MakeAvailable(Catch2)
 
-add_executable(chess_tests test_bench.cpp test_bitboard.cpp test_perft.cpp test_position.cpp test_uci.cpp)
+add_executable(
+  chess_tests
+  test_bench.cpp
+  test_bitboard.cpp
+  test_evaluate.cpp
+  test_perft.cpp
+  test_position.cpp
+  test_search.cpp
+  test_uci.cpp)
 target_link_libraries(chess_tests PRIVATE chess::core chess::project_options Catch2::Catch2WithMain)
 chess_enable_clang_tidy(chess_tests)
 
