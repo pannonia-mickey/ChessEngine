@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "position.hpp"
+#include "tt.hpp"
 
 namespace chess {
 
@@ -59,6 +60,7 @@ private:
     std::mutex out_mutex_;
     Position position_;
     std::chrono::milliseconds move_overhead_;
+    TranspositionTable tt_;
     // Declared last so it is joined before the members the search thread uses are destroyed.
     std::jthread search_thread_;
 };

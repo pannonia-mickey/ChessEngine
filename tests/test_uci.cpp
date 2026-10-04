@@ -64,6 +64,24 @@ TEST_CASE_METHOD(UciFixture, "quit stops a running search", "[uci]") {
     CHECK(out.str().find("bestmove ") != std::string::npos);
 }
 
+TEST_CASE_METHOD(UciFixture, "the Hash option resizes the transposition table", "[uci]") {
+    uci.handle_command("uci");
+    CHECK(out.str().find("option name Hash type spin default 16 min 1 max 65536\n") !=
+          std::string::npos);
+    out.str("");
+    uci.handle_command("setoption name Hash value 2");
+    uci.handle_command("ucinewgame");
+    CHECK(out.str().empty());
+    uci.handle_command("setoption name Hash value 0");
+    CHECK(out.str() == "info string invalid option Hash value 0\n");
+}
+
+TEST_CASE_METHOD(UciFixture, "go reports hashfull", "[uci]") {
+    uci.handle_command("go depth 3");
+    uci.wait();
+    CHECK(out.str().find(" hashfull ") != std::string::npos);
+}
+
 TEST_CASE_METHOD(UciFixture, "go with a clock answers in time", "[uci]") {
     uci.handle_command("go wtime 200 btime 200 winc 0 binc 0");
     uci.wait();

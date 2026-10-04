@@ -12,7 +12,8 @@ namespace chess {
 // the same "bench" node count walk the same tree. Its nodes-per-second figure is a rough speed
 // measure for comparing builds on the same machine.
 //
-// The workload is a fixed-depth search of every bench position, each from a fresh state.
+// The workload is a fixed-depth search of every bench position, each from a fresh state (an
+// empty transposition table of the default size).
 
 inline constexpr int kDefaultBenchDepth = 6;
 

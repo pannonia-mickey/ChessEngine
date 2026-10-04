@@ -27,6 +27,13 @@ public:
 
     [[nodiscard]] static constexpr Move null() noexcept { return {}; }
 
+    // The move whose raw() is `data`.
+    [[nodiscard]] static constexpr Move from_raw(std::uint16_t data) noexcept {
+        Move move;
+        move.data_ = data;
+        return move;
+    }
+
     [[nodiscard]] constexpr Square from() const noexcept {
         return static_cast<Square>(data_ & 0x3FU);
     }
