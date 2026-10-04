@@ -27,9 +27,58 @@ TEST_CASE_METHOD(UciFixture, "isready answers readyok", "[uci]") {
     CHECK(out.str() == "readyok\n");
 }
 
-TEST_CASE_METHOD(UciFixture, "go answers with a bestmove", "[uci]") {
-    REQUIRE(uci.handle_command("go depth 1"));
-    CHECK(out.str().starts_with("bestmove "));
+TEST_CASE_METHOD(UciFixture, "go reports info per iteration and ends with bestmove", "[uci]") {
+    REQUIRE(uci.handle_command("go depth 2"));
+    uci.wait();
+    const std::string reply = out.str();
+    CHECK(reply.starts_with("info depth 1 seldepth "));
+    CHECK(reply.find("\ninfo depth 2 ") != std::string::npos);
+    CHECK(reply.find(" score cp ") != std::string::npos);
+    CHECK(reply.find(" pv ") != std::string::npos);
+    CHECK(reply.find("\nbestmove ") != std::string::npos);
+    CHECK(reply.ends_with("\n"));
+}
+
+TEST_CASE_METHOD(UciFixture, "go reports mate scores in moves", "[uci]") {
+    uci.handle_command("position fen 6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1");
+    uci.handle_command("go depth 3");
+    uci.wait();
+    const std::string reply = out.str();
+    CHECK(reply.find("score mate 1 ") != std::string::npos);
+    CHECK(reply.ends_with("bestmove d1d8\n"));
+}
+
+TEST_CASE_METHOD(UciFixture, "go infinite waits for stop and isready is answered meanwhile",
+                 "[uci]") {
+    uci.handle_command("go infinite");
+    REQUIRE(uci.handle_command("isready"));
+    CHECK(out.str().find("readyok\n") != std::string::npos);
+    CHECK(out.str().find("bestmove") == std::string::npos);
+    REQUIRE(uci.handle_command("stop"));
+    CHECK(out.str().find("\nbestmove ") != std::string::npos);
+}
+
+TEST_CASE_METHOD(UciFixture, "quit stops a running search", "[uci]") {
+    uci.handle_command("go infinite");
+    CHECK_FALSE(uci.handle_command("quit"));
+    CHECK(out.str().find("bestmove ") != std::string::npos);
+}
+
+TEST_CASE_METHOD(UciFixture, "go with a clock answers in time", "[uci]") {
+    uci.handle_command("go wtime 200 btime 200 winc 0 binc 0");
+    uci.wait();
+    CHECK(out.str().find("bestmove ") != std::string::npos);
+}
+
+TEST_CASE_METHOD(UciFixture, "uci lists the options and setoption validates values", "[uci]") {
+    uci.handle_command("uci");
+    CHECK(out.str().find("option name Move Overhead type spin default 10 min 0 max 5000\n") !=
+          std::string::npos);
+    out.str("");
+    uci.handle_command("setoption name Move Overhead value 50");
+    CHECK(out.str().empty());
+    uci.handle_command("setoption name Move Overhead value -1");
+    CHECK(out.str() == "info string invalid option Move Overhead value -1\n");
 }
 
 TEST_CASE_METHOD(UciFixture, "quit stops the engine", "[uci]") {
@@ -85,7 +134,8 @@ TEST_CASE_METHOD(UciFixture, "go plays a legal move, or the null move when there
                  "[uci]") {
     uci.handle_command("position fen 7k/5Q2/6K1/8/8/8/8/8 b - - 0 1");  // Stalemate.
     uci.handle_command("go depth 1");
-    CHECK(out.str() == "bestmove 0000\n");
+    uci.wait();
+    CHECK(out.str().ends_with("bestmove 0000\n"));
 }
 
 TEST_CASE_METHOD(UciFixture, "d shows the board and the fen", "[uci]") {

@@ -108,26 +108,24 @@ any change to search behavior changes it.
 ```text
 $ ./build/release/src/chessengine bench        # also works as a UCI command: "bench [depth]"
 Position 1/12: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1
-Nodes: 4865609
+Nodes: 927023
 ...
 ===========================
-Total time (ms) : 3588
-Nodes searched  : 655446288
-Nodes/second    : 182677337
-655446288 nodes 182677337 nps
+Total time (ms) : 3465
+Nodes searched  : 9988433
+Nodes/second    : 2882664
+9988433 nodes 2882664 nps
 ```
 
 Specification:
 
-- `bench [depth]` processes the twelve positions in `kBenchFens` (`src/bench.hpp`) at `depth`
-  (default `kDefaultBenchDepth`).
+- `bench [depth]` runs a fixed-depth search of the twelve positions in `kBenchFens`
+  (`src/bench.hpp`) to `depth` (default `kDefaultBenchDepth`, chosen so that a release build takes
+  a few seconds). The node count is the total of every node the search visits, quiescence included.
 - The node count depends only on the code: no time limits, no randomness, a fresh state for each
-  position.
+  position (once the engine has a hash table, a fresh, fixed-size one).
 - The last line is `<nodes> nodes <nps> nps`, the format OpenBench and similar tools parse.
 - `chessengine bench` on the command line runs the same command and exits.
-- Until search exists the workload is a perft of each position. When search lands, `bench`
-  becomes a fixed-depth search of the same positions with a fresh hash table, and the default depth
-  is chosen so that a release build takes a few seconds.
 
 Every commit that changes the bench node count ends its message with a `Bench: <nodes>` line, so any
 build in the history can be checked against the commit it claims to be.

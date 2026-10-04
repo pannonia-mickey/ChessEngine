@@ -62,6 +62,10 @@ public:
     // Takes back the last move made with make_move.
     void unmake_move();
 
+    // True when the current position occurred before with the same side to move since the last
+    // capture or pawn move. Search treats a single repetition as a draw.
+    [[nodiscard]] bool is_repetition() const noexcept;
+
     // Number of moves that can be taken back.
     [[nodiscard]] std::size_t ply() const noexcept { return history_.size(); }
 
