@@ -1,0 +1,10 @@
+add_library(chess_core uci.cpp)
+add_library(chess::core ALIAS chess_core)
+target_include_directories(chess_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(chess_core PRIVATE chess::project_options)
+target_compile_definitions(chess_core PUBLIC CHESS_ENGINE_VERSION="${PROJECT_VERSION}")
+chess_enable_clang_tidy(chess_core)
+
+add_executable(chessengine main.cpp)
+target_link_libraries(chessengine PRIVATE chess::core chess::project_options)
+chess_enable_clang_tidy(chessengine)
