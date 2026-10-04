@@ -29,6 +29,7 @@ private:
     void cmd_position(std::string_view args);
     void cmd_go(std::string_view args);
     void cmd_perft(int depth);
+    void cmd_bench(std::string_view args);
     void cmd_display();
 
     std::istream& in_;

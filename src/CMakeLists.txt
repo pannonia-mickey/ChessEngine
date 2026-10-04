@@ -1,5 +1,6 @@
 add_library(
   chess_core
+  bench.cpp
   bitboard.cpp
   magic.cpp
   move.cpp

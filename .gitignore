@@ -6,3 +6,7 @@ CMakeUserPresets.json
 .vscode/
 .idea/
 *.swp
+
+# SPRT builds, opening books and match results (tools/sprt.py)
+/.sprt/
+__pycache__/
