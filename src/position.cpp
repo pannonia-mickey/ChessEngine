@@ -300,21 +300,28 @@ Bitboard Position::checkers() const {
     return attackers_to(king_square(side_to_move_)) & pieces(~side_to_move_);
 }
 
+template <bool UpdateKey>
 void Position::put_piece(Piece piece, Square square) noexcept {
     board_[square] = piece;
     by_color_[color_of(piece)] |= square_bb(square);
     by_type_[type_of(piece)] |= square_bb(square);
-    key_ ^= zobrist::piece_square(piece, square);
+    if constexpr (UpdateKey) {
+        key_ ^= zobrist::piece_square(piece, square);
+    }
 }
 
+template <bool UpdateKey>
 void Position::remove_piece(Square square) noexcept {
     const Piece piece = board_[square];
     board_[square] = NoPiece;
     by_color_[color_of(piece)] ^= square_bb(square);
     by_type_[type_of(piece)] ^= square_bb(square);
-    key_ ^= zobrist::piece_square(piece, square);
+    if constexpr (UpdateKey) {
+        key_ ^= zobrist::piece_square(piece, square);
+    }
 }
 
+template <bool UpdateKey>
 void Position::move_piece(Square from, Square to) noexcept {
     const Piece piece = board_[from];
     const Bitboard from_to = square_bb(from) | square_bb(to);
@@ -322,7 +329,9 @@ void Position::move_piece(Square from, Square to) noexcept {
     board_[to] = piece;
     by_color_[color_of(piece)] ^= from_to;
     by_type_[type_of(piece)] ^= from_to;
-    key_ ^= zobrist::piece_square(piece, from) ^ zobrist::piece_square(piece, to);
+    if constexpr (UpdateKey) {
+        key_ ^= zobrist::piece_square(piece, from) ^ zobrist::piece_square(piece, to);
+    }
 }
 
 void Position::set_en_passant(Square square) noexcept {
@@ -471,25 +480,25 @@ void Position::unmake_move() {
     switch (move.type()) {
         case MoveType::Castling: {
             const auto rook = castling_rook(to);
-            move_piece(rook.to, rook.from);
-            move_piece(to, from);
+            move_piece<false>(rook.to, rook.from);
+            move_piece<false>(to, from);
             break;
         }
         case MoveType::EnPassant:
-            move_piece(to, from);
-            put_piece(undo.captured, offset(to, -pawn_push(us)));
+            move_piece<false>(to, from);
+            put_piece<false>(undo.captured, offset(to, -pawn_push(us)));
             break;
         case MoveType::Promotion:
-            remove_piece(to);
-            put_piece(make_piece(us, Pawn), from);
+            remove_piece<false>(to);
+            put_piece<false>(make_piece(us, Pawn), from);
             if (undo.captured != NoPiece) {
-                put_piece(undo.captured, to);
+                put_piece<false>(undo.captured, to);
             }
             break;
         case MoveType::Normal:
-            move_piece(to, from);
+            move_piece<false>(to, from);
             if (undo.captured != NoPiece) {
-                put_piece(undo.captured, to);
+                put_piece<false>(undo.captured, to);
             }
             break;
     }

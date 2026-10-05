@@ -99,8 +99,13 @@ private:
     // Sets up the position from FEN on an empty board; false if the FEN is invalid.
     [[nodiscard]] bool parse_fen(std::string_view fen);
 
+    // Board updates. The key is updated too, unless UpdateKey is false: taking a move back
+    // restores the key saved before the move instead.
+    template <bool UpdateKey = true>
     void put_piece(Piece piece, Square square) noexcept;
+    template <bool UpdateKey = true>
     void remove_piece(Square square) noexcept;
+    template <bool UpdateKey = true>
     void move_piece(Square from, Square to) noexcept;
 
     // Sets en_passant_ to the square behind a double-pushed pawn when it can be captured.
