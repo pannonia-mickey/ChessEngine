@@ -171,12 +171,15 @@ class MovePicker {
 public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
     // valuable attacker) and promotions, then the killer moves, then the other quiet moves by
-    // history score.
+    // history score. With `tactical_only`, only captures and queen promotions are returned.
     void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
-               const History* history) {
+               const History* history, bool tactical_only = false) {
         size_ = 0;
         current_ = 0;
         for (const Move move : moves) {
+            if (tactical_only && !is_tactical(pos, move)) {
+                continue;
+            }
             moves_[size_] = move;
             scores_[size_] = score(pos, move, hash_move, killers, history);
             ++size_;
@@ -470,11 +473,10 @@ private:
         }
 
         MovePicker& picker = data.picker;
-        picker.reset(pos_, data.moves, Move::null(), {}, nullptr);
+        // Out of check only captures and queen promotions are searched; the rest are not even
+        // scored.
+        picker.reset(pos_, data.moves, Move::null(), {}, nullptr, !in_check);
         while (const auto move = picker.next()) {
-            if (!in_check && !is_tactical(pos_, *move)) {
-                continue;
-            }
             pos_.make_move(*move);
             const Score score = -quiescence(-beta, -alpha, ply + 1);
             pos_.unmake_move();
