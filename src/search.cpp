@@ -172,8 +172,10 @@ public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
     // valuable attacker) and promotions, then the killer moves, then the other quiet moves by
     // history score.
-    MovePicker(const Position& pos, const MoveList& moves, Move hash_move,
-               const Killers& killers = {}, const History* history = nullptr) {
+    void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
+               const History* history) {
+        size_ = 0;
+        current_ = 0;
         for (const Move move : moves) {
             moves_[size_] = move;
             scores_[size_] = score(pos, move, hash_move, killers, history);
@@ -320,7 +322,9 @@ private:
             }
         }
 
-        const MoveList moves = generate_legal_moves(pos_);
+        PlyData& data = stack_[ply];
+        const MoveList& moves = data.moves;
+        generate_legal_moves(pos_, data.moves);
         const bool in_check = pos_.in_check();
         if (moves.empty()) {
             return in_check ? mated_score(ply) : kDrawScore;
@@ -354,13 +358,14 @@ private:
         if (ply + 2 <= kLastPly) {
             killers_[ply + 2] = {};
         }
-        MovePicker picker(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply],
-                          &history_);
+        MovePicker& picker = data.picker;
+        picker.reset(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply], &history_);
         const Score original_alpha = alpha;
         Score best = -kInfiniteScore;
         Move best_move = Move::null();
         // Quiet moves searched before the current one, penalized when another move cuts off.
-        MoveList quiets_tried;
+        MoveList& quiets_tried = data.quiets_tried;
+        quiets_tried.clear();
         int moves_searched = 0;
         while (const auto move = picker.next()) {
             const bool quiet = is_quiet(pos_, *move);
@@ -458,12 +463,14 @@ private:
             alpha = std::max(alpha, best);
         }
 
-        const MoveList moves = generate_legal_moves(pos_);
-        if (in_check && moves.empty()) {
+        PlyData& data = stack_[ply];
+        generate_legal_moves(pos_, data.moves);
+        if (in_check && data.moves.empty()) {
             return mated_score(ply);
         }
 
-        MovePicker picker(pos_, moves, Move::null());
+        MovePicker& picker = data.picker;
+        picker.reset(pos_, data.moves, Move::null(), {}, nullptr);
         while (const auto move = picker.next()) {
             if (!in_check && !is_tactical(pos_, *move)) {
                 continue;
@@ -563,6 +570,16 @@ private:
 
     std::array<Killers, kMaxPly + 1> killers_{};
     History history_;
+
+    // The move lists of the node being searched at each ply. A node's lists are only used while
+    // it is on the search path, and only one node per ply is, so they live here rather than in
+    // the recursive functions' stack frames, keeping the search thread's stack small.
+    struct PlyData {
+        MoveList moves;
+        MoveList quiets_tried;
+        MovePicker picker;
+    };
+    std::array<PlyData, kMaxPly + 1> stack_{};
 };
 
 }  // namespace

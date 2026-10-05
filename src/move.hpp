@@ -73,6 +73,8 @@ public:
 
     constexpr void push_back(Move move) noexcept { moves_[size_++] = move; }
 
+    constexpr void clear() noexcept { size_ = 0; }
+
     [[nodiscard]] constexpr std::size_t size() const noexcept { return size_; }
     [[nodiscard]] constexpr bool empty() const noexcept { return size_ == 0; }
 
