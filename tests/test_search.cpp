@@ -135,3 +135,13 @@ TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[sea
     Position fresh = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 0 80");
     CHECK(search_to_depth(fresh, 3).score > 800);
 }
+
+TEST_CASE("search does not take a single repetition of the game for a draw", "[search]") {
+    // A queen down, Black could go back to a position of the game with Ke8. That repeats it only
+    // once, which is not a draw, so the search must still see the lost position.
+    Position pos = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 0 1");
+    for (const auto* const move : {"e1f2", "e8e7", "f2e1"}) {
+        pos.make_move(test::legal_move(pos, move));
+    }
+    CHECK(search_to_depth(pos, 4).score < -500);
+}

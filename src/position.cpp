@@ -414,19 +414,22 @@ void Position::make_move(Move move) {
     }
 }
 
-bool Position::is_repetition() const noexcept {
+bool Position::is_repetition(std::size_t search_ply) const noexcept {
     // A position can only repeat after both sides have made at least two moves, and never across
     // an irreversible move, which resets the halfmove clock.
     // A null move is not a real move, so positions before one are not repetitions either.
     const std::size_t plies = history_.size();
     const std::size_t reversible = std::min(plies, static_cast<std::size_t>(halfmove_clock_));
+    int earlier = 0;
     for (std::size_t back = 1; back <= reversible; ++back) {
         const UndoInfo& undo = history_[plies - back];
         if (undo.move.is_null()) {
             return false;
         }
         if (back >= 4 && back % 2 == 0 && undo.key == key_) {
-            return true;
+            if (back < search_ply || ++earlier == 2) {
+                return true;
+            }
         }
     }
     return false;

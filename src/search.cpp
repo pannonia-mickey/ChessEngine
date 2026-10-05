@@ -302,7 +302,7 @@ private:
         if (count_node()) {
             return 0;
         }
-        if (ply > 0 && (pos_.is_repetition() || insufficient_material(pos_))) {
+        if (ply > 0 && (pos_.is_repetition(ply) || insufficient_material(pos_))) {
             return kDrawScore;
         }
         if (ply >= kLastPly) {

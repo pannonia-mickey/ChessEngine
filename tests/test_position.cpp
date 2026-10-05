@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
+#include <cstddef>
+#include <initializer_list>
 #include <string>
 
 #include "movegen.hpp"
@@ -149,22 +151,43 @@ TEST_CASE("check detection", "[position]") {
 }
 
 TEST_CASE("repetitions are detected since the last irreversible move", "[position]") {
+    // As if the search had started long before these moves: a single repetition counts.
+    constexpr std::size_t kSearchPly = 100;
     Position pos;
     for (const auto* const move : {"g1f3", "g8f6", "f3g1"}) {
         pos.make_move(test::legal_move(pos, move));
-        CHECK_FALSE(pos.is_repetition());
+        CHECK_FALSE(pos.is_repetition(kSearchPly));
     }
     pos.make_move(test::legal_move(pos, "f6g8"));
-    CHECK(pos.is_repetition());
+    CHECK(pos.is_repetition(kSearchPly));
 
     // A pawn move makes the earlier positions unreachable.
     pos.make_move(test::legal_move(pos, "e2e4"));
     for (const auto* const move : {"g8f6", "g1f3", "f6g8", "f3g1"}) {
         pos.make_move(test::legal_move(pos, move));
     }
-    CHECK(pos.is_repetition());
+    CHECK(pos.is_repetition(kSearchPly));
     pos.unmake_move();
-    CHECK_FALSE(pos.is_repetition());
+    CHECK_FALSE(pos.is_repetition(kSearchPly));
+}
+
+TEST_CASE("a repetition of the game before the search needs a third occurrence", "[position]") {
+    Position pos;
+    const auto play = [&](std::initializer_list<const char*> moves) {
+        for (const auto* const move : moves) {
+            pos.make_move(test::legal_move(pos, move));
+        }
+    };
+    // The search starts after Nf3 Nf6 Ng1; Ng8 then repeats the start position once.
+    play({"g1f3", "g8f6", "f3g1", "f6g8"});
+    CHECK_FALSE(pos.is_repetition(1));
+    // Repeating a position of the search tree, after the root, is enough.
+    CHECK(pos.is_repetition(5));
+    // The root itself is a position of the game: it needs a third occurrence too.
+    CHECK_FALSE(pos.is_repetition(4));
+    // The third occurrence is a draw however deep the search is.
+    play({"g1f3", "g8f6", "f3g1", "f6g8"});
+    CHECK(pos.is_repetition(1));
 }
 
 TEST_CASE("a null move passes the turn and is taken back exactly", "[position][zobrist]") {
@@ -189,5 +212,5 @@ TEST_CASE("repetitions are not detected across a null move", "[position]") {
     }
     pos.make_null_move();
     REQUIRE(pos.key() == test::position_from("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").key());
-    CHECK_FALSE(pos.is_repetition());
+    CHECK_FALSE(pos.is_repetition(pos.ply()));
 }
