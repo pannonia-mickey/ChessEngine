@@ -291,6 +291,10 @@ public:
     }
 
 private:
+    // `on_pv` is set along the previous iteration's principal variation, whose moves are tried
+    // first. A PV node, whose exact score matters, is one searched with an open window instead:
+    // every node of the null window searches is a non-PV node, while a node off the previous PV
+    // can be a PV node when the search finds a new best line through it.
     // `after_null` is set right after a null move, so two are never made in a row.
     // NOLINTNEXTLINE(misc-no-recursion): recursion depth is bounded by kMaxPly.
     Score negamax(int depth, Score alpha, Score beta, std::size_t ply, bool on_pv,
@@ -299,6 +303,7 @@ private:
         if (depth <= 0) {
             return quiescence(alpha, beta, ply);
         }
+        const bool pv_node = beta - alpha > 1;
         if (count_node()) {
             return 0;
         }
@@ -337,10 +342,11 @@ private:
         }
 
         // Null move pruning: if passing the turn still fails high in a reduced search, a real
-        // move almost surely would too. Skipped in check, along the PV, and without pieces
+        // move almost surely would too. Skipped in check, in PV nodes, and without pieces
         // (zugzwang).
-        if (!on_pv && !after_null && !in_check && depth >= kNullMoveMinDepth && beta < kMateBound &&
-            has_non_pawn_material(pos_, pos_.side_to_move()) && evaluate(pos_) >= beta) {
+        if (!pv_node && !after_null && !in_check && depth >= kNullMoveMinDepth &&
+            beta < kMateBound && has_non_pawn_material(pos_, pos_.side_to_move()) &&
+            evaluate(pos_) >= beta) {
             const int reduction = 3 + (depth / 4);
             pos_.make_null_move();
             const Score score =
@@ -391,7 +397,7 @@ private:
                 if (depth >= kLmrMinDepth && moves_searched >= kLmrMinMoves && quiet && !killer &&
                     !in_check && !gives_check) {
                     int reduction = lmr_reduction(depth, moves_searched);
-                    if (on_pv) {
+                    if (pv_node) {
                         --reduction;
                     }
                     reduction = std::clamp(reduction, 0, depth - 2);
