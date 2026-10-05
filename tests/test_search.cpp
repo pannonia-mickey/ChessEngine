@@ -3,6 +3,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "search.hpp"
@@ -89,6 +90,17 @@ TEST_CASE("search reports every completed iteration", "[search]") {
     });
     CHECK(depths == std::vector<int>{1, 2, 3, 4});
     CHECK_FALSE(result.best_move.is_null());
+}
+
+TEST_CASE("the principal variation is not cut short by the transposition table", "[search]") {
+    // Table hits used to end the line early: here a 5-move PV at depth 8.
+    Position pos = test::position_from("8/3k4/8/8/8/8/3PK3/8 w - - 0 1");
+    SearchLimits limits;
+    limits.depth = 8;
+    TranspositionTable tt(1);
+    static_cast<void>(search(pos, limits, tt, {}, [](const SearchInfo& info) {
+        CHECK(std::cmp_greater_equal(info.pv.size(), info.depth));
+    }));
 }
 
 TEST_CASE("search respects node limits and stop requests", "[search]") {

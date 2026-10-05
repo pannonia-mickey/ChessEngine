@@ -318,9 +318,10 @@ private:
         Move tt_move = Move::null();
         if (const auto entry = tt_.probe(key)) {
             tt_move = entry->move;
-            // The root always searches, so a best move is known. A position the 50-move rule may
-            // already have drawn is searched too, since the entry cannot know about the rule.
-            if (ply > 0 && entry->depth >= depth && pos_.halfmove_clock() < 100) {
+            // PV nodes always search, so the root knows a best move and the principal variation
+            // is not cut short. A position the 50-move rule may already have drawn is searched
+            // too, since the entry cannot know about the rule.
+            if (!pv_node && entry->depth >= depth && pos_.halfmove_clock() < 100) {
                 const Score score = score_from_tt(entry->score, ply);
                 if (entry->bound == Bound::Exact ||
                     (entry->bound == Bound::Lower && score >= beta) ||
