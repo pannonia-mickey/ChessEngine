@@ -369,25 +369,36 @@ private:
             pos_.make_move(*move);
             const bool gives_check = pos_.in_check();
             Score score = 0;
-            // Late move reductions: quiet moves late in the ordering rarely matter, so they are
-            // searched shallower with a null window first, and at full depth only if they beat
-            // alpha. Captures, promotions, killers, checks and check evasions are never reduced.
-            bool full_depth = true;
-            if (depth >= kLmrMinDepth && moves_searched >= kLmrMinMoves && quiet && !killer &&
-                !in_check && !gives_check) {
-                int reduction = lmr_reduction(depth, moves_searched);
-                if (on_pv) {
-                    --reduction;
-                }
-                reduction = std::clamp(reduction, 0, depth - 2);
-                if (reduction > 0) {
-                    score =
-                        -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false, false);
-                    full_depth = score > alpha && !aborted_;
-                }
-            }
-            if (full_depth) {
+            if (moves_searched == 0) {
                 score = -negamax(depth - 1, -beta, -alpha, ply + 1, child_on_pv, false);
+            } else {
+                // Principal variation search: with good ordering the first move is the best, so
+                // the others only need proving worse, which a null window around alpha does more
+                // cheaply. A move that beats alpha anyway is searched again with the full window.
+                // Late move reductions: quiet moves late in the ordering rarely matter, so their
+                // null window search is shallower at first, and at full depth only if they beat
+                // alpha. Captures, promotions, killers, checks and check evasions are never
+                // reduced.
+                bool full_depth = true;
+                if (depth >= kLmrMinDepth && moves_searched >= kLmrMinMoves && quiet && !killer &&
+                    !in_check && !gives_check) {
+                    int reduction = lmr_reduction(depth, moves_searched);
+                    if (on_pv) {
+                        --reduction;
+                    }
+                    reduction = std::clamp(reduction, 0, depth - 2);
+                    if (reduction > 0) {
+                        score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false,
+                                         false);
+                        full_depth = score > alpha && !aborted_;
+                    }
+                }
+                if (full_depth) {
+                    score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1, false, false);
+                    if (score > alpha && score < beta && !aborted_) {
+                        score = -negamax(depth - 1, -beta, -alpha, ply + 1, child_on_pv, false);
+                    }
+                }
             }
             pos_.unmake_move();
             ++moves_searched;
