@@ -58,6 +58,14 @@ TEST_CASE_METHOD(UciFixture, "go infinite waits for stop and isready is answered
     CHECK(out.str().find("\nbestmove ") != std::string::npos);
 }
 
+TEST_CASE("an infinite search is stopped at the end of input", "[uci]") {
+    std::istringstream in("go infinite\n");
+    std::ostringstream out;
+    chess::Uci uci(in, out);
+    uci.loop();
+    CHECK(out.str().find("bestmove ") != std::string::npos);
+}
+
 TEST_CASE_METHOD(UciFixture, "quit stops a running search", "[uci]") {
     uci.handle_command("go infinite");
     CHECK_FALSE(uci.handle_command("quit"));
