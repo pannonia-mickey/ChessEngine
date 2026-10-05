@@ -1,7 +1,9 @@
 #include "search.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -33,6 +35,9 @@ constexpr auto kLastPly = static_cast<std::size_t>(kMaxPly - 1);
 constexpr int kNullMoveMinDepth = 3;
 // History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
 constexpr int kMaxHistory = 16'384;
+// Late move reductions apply from this remaining depth on, to moves after this many searched ones.
+constexpr int kLmrMinDepth = 3;
+constexpr int kLmrMinMoves = 3;
 
 struct TimeBudget {
     // No new iteration starts after this.
@@ -89,6 +94,27 @@ bool is_quiet(const Position& pos, Move move) {
 bool is_tactical(const Position& pos, Move move) {
     return is_capture(pos, move) ||
            (move.type() == MoveType::Promotion && move.promotion() == Queen);
+}
+
+// How many plies late move reductions take off a quiet move, by remaining depth and by how many
+// moves were searched before it. Grows with the logarithm of both: the later a move comes in a
+// well ordered list and the deeper the search, the less likely the move is to matter.
+int lmr_reduction(int depth, int move_number) {
+    constexpr std::size_t kTableSize = 64;
+    static const auto reductions = [] {
+        std::array<std::array<int, kTableSize>, kTableSize> table{};
+        for (std::size_t d = 1; d < kTableSize; ++d) {
+            for (std::size_t m = 1; m < kTableSize; ++m) {
+                table[d][m] = static_cast<int>(0.75 + (std::log(static_cast<double>(d)) *
+                                                       std::log(static_cast<double>(m)) / 2.25));
+            }
+        }
+        return table;
+    }();
+    const auto index = [](int value) {
+        return std::min(static_cast<std::size_t>(std::max(value, 0)), kTableSize - 1);
+    };
+    return reductions[index(depth)][index(move_number)];
 }
 
 // Mate scores count plies from the root, but a table entry may be reached at a different ply.
@@ -331,12 +357,36 @@ private:
         Move best_move = Move::null();
         // Quiet moves searched before the current one, penalized when another move cuts off.
         MoveList quiets_tried;
+        int moves_searched = 0;
         while (const auto move = picker.next()) {
             const bool quiet = is_quiet(pos_, *move);
+            const bool killer = *move == killers_[ply][0] || *move == killers_[ply][1];
+            const bool child_on_pv = on_pv && *move == pv_move;
             pos_.make_move(*move);
-            const Score score =
-                -negamax(depth - 1, -beta, -alpha, ply + 1, on_pv && *move == pv_move, false);
+            const bool gives_check = pos_.in_check();
+            Score score = 0;
+            // Late move reductions: quiet moves late in the ordering rarely matter, so they are
+            // searched shallower with a null window first, and at full depth only if they beat
+            // alpha. Captures, promotions, killers, checks and check evasions are never reduced.
+            bool full_depth = true;
+            if (depth >= kLmrMinDepth && moves_searched >= kLmrMinMoves && quiet && !killer &&
+                !in_check && !gives_check) {
+                int reduction = lmr_reduction(depth, moves_searched);
+                if (on_pv) {
+                    --reduction;
+                }
+                reduction = std::clamp(reduction, 0, depth - 2);
+                if (reduction > 0) {
+                    score =
+                        -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false, false);
+                    full_depth = score > alpha && !aborted_;
+                }
+            }
+            if (full_depth) {
+                score = -negamax(depth - 1, -beta, -alpha, ply + 1, child_on_pv, false);
+            }
             pos_.unmake_move();
+            ++moves_searched;
             if (aborted_) {
                 return 0;
             }
