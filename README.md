@@ -21,7 +21,7 @@ Board representation, fully legal move generation and a basic search and evaluat
 - Time management for `wtime`/`btime`/`winc`/`binc`/`movestogo`, `movetime`, `depth`, `nodes` and `infinite`; the search runs on its own thread, so `stop` and `isready` are answered while it thinks.
 - `go perft <depth>` prints the node count per root move (sorted) and the total, verified against the standard [perft results](https://www.chessprogramming.org/Perft_Results).
 
-The UCI loop answers `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go` and `stop`, and exits on `quit`. `go` reports `info depth … seldepth … score cp|mate … nodes … nps … time … pv …` after each iteration, then `bestmove`. The only option is `Move Overhead` (ms reserved per move for communication delays, default 10). `d` prints the board, FEN and hash key, and `bench [depth]` runs the fixed benchmark whose node count fingerprints a build (`chessengine bench` does the same from the command line). Unknown commands are ignored, as the protocol requires.
+The UCI loop answers `uci`, `isready`, `setoption`, `ucinewgame`, `position`, `go` and `stop`, and exits on `quit`. `go` reports `info depth … seldepth … score cp|mate … nodes … nps … time … pv …` after each iteration, then `bestmove`. The only option is `Move Overhead` (ms reserved per move for communication and scheduling delays, default 30). `d` prints the board, FEN and hash key, and `bench [depth]` runs the fixed benchmark whose node count fingerprints a build (`chessengine bench` does the same from the command line). Unknown commands are ignored, as the protocol requires.
 
 ## Requirements
 

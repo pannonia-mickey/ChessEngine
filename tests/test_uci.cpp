@@ -90,7 +90,7 @@ TEST_CASE_METHOD(UciFixture, "go with a clock answers in time", "[uci]") {
 
 TEST_CASE_METHOD(UciFixture, "uci lists the options and setoption validates values", "[uci]") {
     uci.handle_command("uci");
-    CHECK(out.str().find("option name Move Overhead type spin default 10 min 0 max 5000\n") !=
+    CHECK(out.str().find("option name Move Overhead type spin default 30 min 0 max 5000\n") !=
           std::string::npos);
     out.str("");
     uci.handle_command("setoption name Move Overhead value 50");
