@@ -32,7 +32,9 @@ struct SearchLimits {
     // Do not report a best move before being stopped, even when the depth limit is reached.
     bool infinite = false;
     // Time kept in reserve per move for communication and process scheduling delays.
-    std::chrono::milliseconds move_overhead{10};
+    std::chrono::milliseconds move_overhead{30};
+    // Time is measured from here; by default, from when the limits were made for "go".
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
 
 // Progress of the search after each completed iteration.

@@ -54,7 +54,7 @@ std::vector<std::string> tokenize(std::string_view text) {
     return tokens;
 }
 
-constexpr int kDefaultMoveOverhead = 10;
+constexpr int kDefaultMoveOverhead = 30;
 constexpr int kMaxMoveOverhead = 5000;
 
 // Parses the arguments of "go" into search limits. Unknown or malformed fields are skipped.

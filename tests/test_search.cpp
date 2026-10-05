@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <stop_token>
 #include <string>
 #include <thread>
@@ -105,6 +106,22 @@ TEST_CASE("search respects node limits and stop requests", "[search]") {
     const SearchResult stopped = search(pos, SearchLimits{}, tt, source.get_token());
     CHECK(stopped.depth == 1);
     CHECK_FALSE(stopped.best_move.is_null());
+}
+
+TEST_CASE("search leaves a reserve on a low clock even with a large increment", "[search]") {
+    using namespace std::chrono_literals;
+    Position pos;
+    SearchLimits limits;
+    // The increment alone would justify spending the whole clock on this move.
+    limits.time[White] = 400ms;
+    limits.increment[White] = 2000ms;
+    TranspositionTable tt(1);
+    const auto start = std::chrono::steady_clock::now();
+    const SearchResult result = search(pos, limits, tt);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    CHECK_FALSE(result.best_move.is_null());
+    // At most 75% of the 370 ms left after the move overhead, plus some slack for polling.
+    CHECK(elapsed < 340ms);
 }
 
 TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[search]") {

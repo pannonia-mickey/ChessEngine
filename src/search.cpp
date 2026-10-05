@@ -27,6 +27,8 @@ using namespace std::chrono_literals;
 
 // Sudden death time controls are planned as if this many moves were left.
 constexpr int kDefaultMovesToGo = 30;
+// At most this share of the clock left after the move overhead is spent on one move.
+constexpr int kMaxClockUsagePercent = 75;
 // How often (in nodes) the clock and the stop request are polled.
 constexpr std::uint64_t kCheckInterval = 1024;
 // The deepest ply a node can be at; evaluated statically, never expanded.
@@ -61,9 +63,11 @@ TimeBudget plan_time(const SearchLimits& limits, Color us) {
     const milliseconds available = std::max(*clock - limits.move_overhead, 1ms);
     const int moves_to_go = limits.moves_to_go > 0 ? std::min(limits.moves_to_go, kDefaultMovesToGo)
                                                    : kDefaultMovesToGo;
+    // Never plan to use the whole clock: a late reply on a busy machine would lose on time.
+    const milliseconds max_usage = std::max(available * kMaxClockUsagePercent / 100, 1ms);
     const milliseconds soft =
-        std::min(available / moves_to_go + limits.increment[us] * 3 / 4, available);
-    const milliseconds hard = std::min(soft * 3, available);
+        std::min(available / moves_to_go + limits.increment[us] * 3 / 4, max_usage);
+    const milliseconds hard = std::min(soft * 3, max_usage);
     return {.soft = soft, .hard = hard};
 }
 
@@ -239,7 +243,7 @@ public:
           limits_(limits),
           tt_(tt),
           stop_(std::move(stop)),
-          start_(Clock::now()),
+          start_(limits.start),
           budget_(plan_time(limits, pos.side_to_move())) {}
 
     SearchResult run(const InfoCallback& on_info) {
