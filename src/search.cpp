@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -30,6 +31,8 @@ constexpr std::uint64_t kCheckInterval = 1024;
 constexpr auto kLastPly = static_cast<std::size_t>(kMaxPly - 1);
 // Null move pruning is tried from this remaining depth on.
 constexpr int kNullMoveMinDepth = 3;
+// History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
+constexpr int kMaxHistory = 16'384;
 
 struct TimeBudget {
     // No new iteration starts after this.
@@ -77,6 +80,11 @@ bool is_capture(const Position& pos, Move move) {
     return move.type() == MoveType::EnPassant || pos.piece_on(move.to()) != NoPiece;
 }
 
+// Neither a capture nor a promotion: the moves ordered by killers and history.
+bool is_quiet(const Position& pos, Move move) {
+    return !is_capture(pos, move) && move.type() != MoveType::Promotion;
+}
+
 // Captures and queen promotions: the moves quiescence search looks at.
 bool is_tactical(const Position& pos, Move move) {
     return is_capture(pos, move) ||
@@ -107,14 +115,38 @@ Score score_from_tt(Score score, std::size_t ply) {
     return score;
 }
 
+// The two most recent quiet moves that caused a beta cutoff at a ply, newest first. Sibling
+// positions tend to be refuted by the same move.
+using Killers = std::array<Move, 2>;
+
+// How often each quiet move (by side to move, from and to square) caused a beta cutoff, weighted
+// by depth and decreased when it failed to.
+class History {
+public:
+    [[nodiscard]] int get(Color us, Move move) const { return table_[us][move.from()][move.to()]; }
+
+    // Adds `bonus` (negative for a penalty), scaled down as the entry nears kMaxHistory so that
+    // entries stay bounded and recent results outweigh old ones.
+    void update(Color us, Move move, int bonus) {
+        int& entry = table_[us][move.from()][move.to()];
+        const int clamped = std::clamp(bonus, -kMaxHistory, kMaxHistory);
+        entry += clamped - (entry * std::abs(clamped) / kMaxHistory);
+    }
+
+private:
+    std::array<std::array<std::array<int, kSquareCount>, kSquareCount>, kColorCount> table_{};
+};
+
 class MovePicker {
 public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
-    // valuable attacker) and promotions, then quiet moves in generation order.
-    MovePicker(const Position& pos, const MoveList& moves, Move hash_move) {
+    // valuable attacker) and promotions, then the killer moves, then the other quiet moves by
+    // history score.
+    MovePicker(const Position& pos, const MoveList& moves, Move hash_move,
+               const Killers& killers = {}, const History* history = nullptr) {
         for (const Move move : moves) {
             moves_[size_] = move;
-            scores_[size_] = score(pos, move, hash_move);
+            scores_[size_] = score(pos, move, hash_move, killers, history);
             ++size_;
         }
     }
@@ -136,9 +168,12 @@ public:
     }
 
 private:
-    static int score(const Position& pos, Move move, Move hash_move) {
+    static int score(const Position& pos, Move move, Move hash_move, const Killers& killers,
+                     const History* history) {
         constexpr int kHashBonus = 1'000'000;
         constexpr int kTacticalBonus = 100'000;
+        constexpr int kFirstKillerBonus = 90'000;
+        constexpr int kSecondKillerBonus = 80'000;
         if (move == hash_move) {
             return kHashBonus;
         }
@@ -152,7 +187,16 @@ private:
         if (move.type() == MoveType::Promotion) {
             value += kTacticalBonus + piece_value(move.promotion());
         }
-        return value;
+        if (value != 0) {
+            return value;
+        }
+        if (move == killers[0]) {
+            return kFirstKillerBonus;
+        }
+        if (move == killers[1]) {
+            return kSecondKillerBonus;
+        }
+        return history != nullptr ? history->get(pos.side_to_move(), move) : 0;
     }
 
     std::array<Move, MoveList::kCapacity> moves_{};
@@ -276,11 +320,19 @@ private:
 
         // The previous iteration's PV is followed first along the PV; elsewhere the table's move.
         const Move pv_move = on_pv && ply < previous_pv_length_ ? previous_pv_[ply] : Move::null();
-        MovePicker picker(pos_, moves, pv_move.is_null() ? tt_move : pv_move);
+        // The killers two plies down were found below other siblings of this node's children.
+        if (ply + 2 <= kLastPly) {
+            killers_[ply + 2] = {};
+        }
+        MovePicker picker(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply],
+                          &history_);
         const Score original_alpha = alpha;
         Score best = -kInfiniteScore;
         Move best_move = Move::null();
+        // Quiet moves searched before the current one, penalized when another move cuts off.
+        MoveList quiets_tried;
         while (const auto move = picker.next()) {
+            const bool quiet = is_quiet(pos_, *move);
             pos_.make_move(*move);
             const Score score =
                 -negamax(depth - 1, -beta, -alpha, ply + 1, on_pv && *move == pv_move, false);
@@ -295,9 +347,15 @@ private:
                     best_move = *move;
                     update_pv(ply, *move);
                     if (alpha >= beta) {
+                        if (quiet) {
+                            update_quiet_stats(*move, quiets_tried, depth, ply);
+                        }
                         break;
                     }
                 }
+            }
+            if (quiet) {
+                quiets_tried.push_back(*move);
             }
         }
 
@@ -365,6 +423,23 @@ private:
         return best;
     }
 
+    // Rewards the quiet move that caused a beta cutoff and penalizes the quiet moves searched
+    // before it in vain.
+    void update_quiet_stats(Move cutoff_move, const MoveList& quiets_tried, int depth,
+                            std::size_t ply) {
+        Killers& killers = killers_[ply];
+        if (killers[0] != cutoff_move) {
+            killers[1] = killers[0];
+            killers[0] = cutoff_move;
+        }
+        const Color us = pos_.side_to_move();
+        const int bonus = depth * depth;
+        history_.update(us, cutoff_move, bonus);
+        for (const Move move : quiets_tried) {
+            history_.update(us, move, -bonus);
+        }
+    }
+
     void update_pv(std::size_t ply, Move move) {
         auto& line = pv_[ply];
         const auto& child = pv_[ply + 1];
@@ -420,6 +495,9 @@ private:
     // The principal variation of the last completed iteration, searched first in the next one.
     std::array<Move, kMaxPly + 1> previous_pv_{};
     std::size_t previous_pv_length_ = 0;
+
+    std::array<Killers, kMaxPly + 1> killers_{};
+    History history_;
 };
 
 }  // namespace
