@@ -170,8 +170,9 @@ private:
 class MovePicker {
 public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
-    // valuable attacker) and promotions, then the killer moves, then the other quiet moves by
-    // history score. With `tactical_only`, only captures and queen promotions are returned.
+    // valuable attacker) and queen promotions, then the killer moves, then the other quiet moves
+    // by history score, and underpromotions last. With `tactical_only`, only captures and queen
+    // promotions are returned.
     void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
                const History* history, bool tactical_only = false) {
         size_ = 0;
@@ -209,8 +210,13 @@ private:
         constexpr int kTacticalBonus = 100'000;
         constexpr int kFirstKillerBonus = 90'000;
         constexpr int kSecondKillerBonus = 80'000;
+        constexpr int kUnderpromotionScore = -kMaxHistory - 1;
         if (move == hash_move) {
             return kHashBonus;
+        }
+        // Promoting to anything but a queen rarely helps, so it is tried after every quiet move.
+        if (move.type() == MoveType::Promotion && move.promotion() != Queen) {
+            return kUnderpromotionScore;
         }
         int value = 0;
         if (is_capture(pos, move)) {
@@ -220,7 +226,7 @@ private:
             value += kTacticalBonus + (piece_value(victim) * 8) - static_cast<int>(attacker);
         }
         if (move.type() == MoveType::Promotion) {
-            value += kTacticalBonus + piece_value(move.promotion());
+            value += kTacticalBonus + piece_value(Queen);
         }
         if (value != 0) {
             return value;
