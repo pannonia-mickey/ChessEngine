@@ -136,6 +136,17 @@ TEST_CASE("search leaves a reserve on a low clock even with a large increment", 
     CHECK(elapsed < 340ms);
 }
 
+TEST_CASE("a search on the clock stops once it has found a mate", "[search]") {
+    using namespace std::chrono_literals;
+    Position pos = test::position_from("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1");
+    SearchLimits limits;
+    limits.time[White] = 60s;
+    TranspositionTable tt(1);
+    const SearchResult result = search(pos, limits, tt);
+    CHECK(result.best_move.to_uci() == "d1d8");
+    CHECK(result.depth == 1);
+}
+
 TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[search]") {
     // A knight cannot mate a bare king.
     Position knight = test::position_from("8/8/8/4k3/8/8/8/3NK3 w - - 0 1");

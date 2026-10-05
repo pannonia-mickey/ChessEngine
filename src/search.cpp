@@ -279,7 +279,8 @@ public:
             // From here on the search may be interrupted: a move is known.
             can_abort_ = true;
             if (result.best_move.is_null() || stop_.stop_requested() ||
-                (budget_.soft.has_value() && elapsed() >= *budget_.soft)) {
+                (budget_.soft.has_value() &&
+                 (elapsed() >= *budget_.soft || mate_found(score, depth)))) {
                 break;
             }
         }
@@ -528,6 +529,12 @@ private:
         const std::size_t child_length = pv_length_[ply + 1];
         std::copy_n(child.begin(), child_length, std::next(line.begin()));
         pv_length_[ply] = child_length + 1;
+    }
+
+    // Whether an iteration to `depth` proved a mate no deeper than that. Searching deeper could
+    // only find a shorter one, so a search on the clock saves its time instead.
+    static bool mate_found(Score score, int depth) {
+        return score >= kMateBound && kMateScore - score <= depth;
     }
 
     static Score mated_score(std::size_t ply) { return -kMateScore + static_cast<Score>(ply); }
