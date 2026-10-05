@@ -166,3 +166,28 @@ TEST_CASE("repetitions are detected since the last irreversible move", "[positio
     pos.unmake_move();
     CHECK_FALSE(pos.is_repetition());
 }
+
+TEST_CASE("a null move passes the turn and is taken back exactly", "[position][zobrist]") {
+    // Black can capture en passant, so the square is part of the key and must be cleared.
+    Position pos = test::position_from("4k3/8/8/8/3pP3/8/8/4K3 b - e3 0 1");
+    const std::string fen = pos.fen();
+    const Key key = pos.key();
+    pos.make_null_move();
+    CHECK(pos.side_to_move() == White);
+    CHECK(pos.en_passant_square() == NoSquare);
+    CHECK(pos.key() == pos.compute_key());
+    pos.unmake_null_move();
+    CHECK(pos.fen() == fen);
+    CHECK(pos.key() == key);
+}
+
+TEST_CASE("repetitions are not detected across a null move", "[position]") {
+    Position pos = test::position_from("4k3/8/8/8/8/8/8/R3K3 w - - 0 1");
+    // The white king triangulates, then Black passes: the start position with White to move.
+    for (const auto* const move : {"e1d1", "e8d8", "d1d2", "d8e8", "d2e1"}) {
+        pos.make_move(test::legal_move(pos, move));
+    }
+    pos.make_null_move();
+    REQUIRE(pos.key() == test::position_from("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").key());
+    CHECK_FALSE(pos.is_repetition());
+}

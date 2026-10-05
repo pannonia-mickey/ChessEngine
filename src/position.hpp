@@ -62,6 +62,12 @@ public:
     // Takes back the last move made with make_move.
     void unmake_move();
 
+    // Passes the turn to the opponent without moving, as null move pruning wants. Not allowed in
+    // check. Repetition detection does not look past a null move.
+    void make_null_move();
+    // Takes back the last move made with make_null_move.
+    void unmake_null_move();
+
     // True when the current position occurred before with the same side to move since the last
     // capture or pawn move. Search treats a single repetition as a draw.
     [[nodiscard]] bool is_repetition() const noexcept;
