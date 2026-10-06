@@ -15,7 +15,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <format>
 #include <fstream>
 #include <functional>
@@ -23,6 +22,7 @@
 #include <optional>
 #include <span>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -73,15 +73,19 @@ struct Params {
     std::vector<double> eg = std::vector<double>(kParams);
 };
 
+// Ends the program with an error message: main() reports it.
+struct Failure : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
+
 [[noreturn]] void fail(std::string_view message) {
-    std::cerr << "tuner: " << message << '\n';
-    std::exit(1);
+    throw Failure(std::string(message));
 }
 
-void usage() {
-    std::cerr << "usage: tuner <dataset.epd> [--epochs N] [--lr X] [--threads N] [--limit N]\n"
-                 "             [--min-count N] [--k X] [--output FILE]\n";
-    std::exit(2);
+[[noreturn]] void usage() {
+    fail(
+        "usage: tuner <dataset.epd> [--epochs N] [--lr X] [--threads N] [--limit N]\n"
+        "             [--min-count N] [--k X] [--output FILE]");
 }
 
 template <typename T>
@@ -327,7 +331,8 @@ void write_values(const Params& params, const std::string& path) {
         for (int row = 0; row < group.size; row += 8) {
             out << "   ";
             for (int i = row; i < std::min(group.size, row + 8); ++i) {
-                const auto index = static_cast<std::size_t>(group.offset + i);
+                const auto index =
+                    static_cast<std::size_t>(group.offset) + static_cast<std::size_t>(i);
                 out << std::format(" {{{:4},{:4}}},", std::lround(params.mg[index]),
                                    std::lround(params.eg[index]));
             }
@@ -344,8 +349,10 @@ void write_values(const Params& params, const std::string& path) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
-    const Options options = parse_options(std::span(argv, static_cast<std::size_t>(argc)));
+namespace {
+
+int run(std::span<char*> args) {
+    const Options options = parse_options(args);
     static_cast<void>(chess::slider_tables());
 
     const auto start = std::chrono::steady_clock::now();
@@ -375,7 +382,7 @@ int main(int argc, char* argv[]) {
                              frozen_count, options.min_count);
     for (const auto& group : chess::eval::kParamGroups) {
         for (int i = 0; i < group.size; ++i) {
-            const auto index = static_cast<std::size_t>(group.offset + i);
+            const auto index = static_cast<std::size_t>(group.offset) + static_cast<std::size_t>(i);
             // Parameters that never occur (pawns on the back ranks, king material) are not news.
             if (frozen[index] && counts[index] != 0) {
                 std::cout << std::format(" {}[{}]", group.name, i);
@@ -422,4 +429,15 @@ int main(int argc, char* argv[]) {
     }
     std::cout << std::format("wrote {}\n", options.output);
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char* argv[]) {
+    try {
+        return run(std::span(argv, static_cast<std::size_t>(argc)));
+    } catch (const Failure& failure) {
+        std::cerr << "tuner: " << failure.what() << '\n';
+        return 1;
+    }
 }
