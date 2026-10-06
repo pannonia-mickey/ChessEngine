@@ -2,150 +2,256 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdlib>
+#include <type_traits>
 
 #include "bitboard.hpp"
+#include "eval_values.hpp"
+#include "magic.hpp"
 
 namespace chess {
 namespace {
 
-using Table = std::array<Score, kSquareCount>;
+using eval::kParamValues;
 
-constexpr std::array<Score, kPieceTypeCount> kMgValue = {82, 337, 365, 477, 1025, 0};
-constexpr std::array<Score, kPieceTypeCount> kEgValue = {94, 281, 297, 512, 936, 0};
 constexpr std::array<int, kPieceTypeCount> kPhaseWeight = {0, 1, 1, 2, 4, 0};
 
-// The tables are written as seen from White with rank 8 on top, so the first entry is a8: White
-// looks a square up with `square ^ 56`, Black with the square itself.
-// clang-format off
-constexpr std::array<Table, kPieceTypeCount> kMgTable = {{
-    {   0,   0,   0,   0,   0,   0,   0,   0,
-       98, 134,  61,  95,  68, 126,  34, -11,
-       -6,   7,  26,  31,  65,  56,  25, -20,
-      -14,  13,   6,  21,  23,  12,  17, -23,
-      -27,  -2,  -5,  12,  17,   6,  10, -25,
-      -26,  -4,  -4, -10,   3,   3,  33, -12,
-      -35,  -1, -20, -23, -15,  24,  38, -22,
-        0,   0,   0,   0,   0,   0,   0,   0},
-    {-167, -89, -34, -49,  61, -97, -15,-107,
-      -73, -41,  72,  36,  23,  62,   7, -17,
-      -47,  60,  37,  65,  84, 129,  73,  44,
-       -9,  17,  19,  53,  37,  69,  18,  22,
-      -13,   4,  16,  13,  28,  19,  21,  -8,
-      -23,  -9,  12,  10,  19,  17,  25, -16,
-      -29, -53, -12,  -3,  -1,  18, -14, -19,
-     -105, -21, -58, -33, -17, -28, -19, -23},
-    { -29,   4, -82, -37, -25, -42,   7,  -8,
-      -26,  16, -18, -13,  30,  59,  18, -47,
-      -16,  37,  43,  40,  35,  50,  37,  -2,
-       -4,   5,  19,  50,  37,  37,   7,  -2,
-       -6,  13,  13,  26,  34,  12,  10,   4,
-        0,  15,  15,  15,  14,  27,  18,  10,
-        4,  15,  16,   0,   7,  21,  33,   1,
-      -33,  -3, -14, -21, -13, -12, -39, -21},
-    {  32,  42,  32,  51,  63,   9,  31,  43,
-       27,  32,  58,  62,  80,  67,  26,  44,
-       -5,  19,  26,  36,  17,  45,  61,  16,
-      -24, -11,   7,  26,  24,  35,  -8, -20,
-      -36, -26, -12,  -1,   9,  -7,   6, -23,
-      -45, -25, -16, -17,   3,   0,  -5, -33,
-      -44, -16, -20,  -9,  -1,  11,  -6, -71,
-      -19, -13,   1,  17,  16,   7, -37, -26},
-    { -28,   0,  29,  12,  59,  44,  43,  45,
-      -24, -39,  -5,   1, -16,  57,  28,  54,
-      -13, -17,   7,   8,  29,  56,  47,  57,
-      -27, -27, -16, -16,  -1,  17,  -2,   1,
-       -9, -26,  -9, -10,  -2,  -4,   3,  -3,
-      -14,   2, -11,  -2,  -5,   2,  14,   5,
-      -35,  -8,  11,   2,   8,  15,  -3,   1,
-       -1, -18,  -9,  10, -15, -25, -31, -50},
-    { -65,  23,  16, -15, -56, -34,   2,  13,
-       29,  -1, -20,  -7,  -8,  -4, -38, -29,
-       -9,  24,   2, -16, -20,   6,  22, -22,
-      -17, -20, -12, -27, -30, -25, -14, -36,
-      -49,  -1, -27, -39, -46, -44, -33, -51,
-      -14, -14, -22, -46, -44, -30, -15, -27,
-        1,   7,  -8, -64, -43, -16,   9,   8,
-      -15,  36,  12, -54,   8, -28,  24,  14},
-}};
+constexpr std::array<int, kPieceTypeCount> kMobility = {
+    0, eval::kKnightMobility, eval::kBishopMobility, eval::kRookMobility, eval::kQueenMobility, 0};
 
-constexpr std::array<Table, kPieceTypeCount> kEgTable = {{
-    {   0,   0,   0,   0,   0,   0,   0,   0,
-      178, 173, 158, 134, 147, 132, 165, 187,
-       94, 100,  85,  67,  56,  53,  82,  84,
-       32,  24,  13,   5,  -2,   4,  17,  17,
-       13,   9,  -3,  -7,  -7,  -8,   3,  -1,
-        4,   7,  -6,   1,   0,  -5,  -1,  -8,
-       13,   8,   8,  10,  13,   0,   2,  -7,
-        0,   0,   0,   0,   0,   0,   0,   0},
-    { -58, -38, -13, -28, -31, -27, -63, -99,
-      -25,  -8, -25,  -2,  -9, -25, -24, -52,
-      -24, -20,  10,   9,  -1,  -9, -19, -41,
-      -17,   3,  22,  22,  22,  11,   8, -18,
-      -18,  -6,  16,  25,  16,  17,   4, -18,
-      -23,  -3,  -1,  15,  10,  -3, -20, -22,
-      -42, -20, -10,  -5,  -2, -20, -23, -44,
-      -29, -51, -23, -15, -22, -18, -50, -64},
-    { -14, -21, -11,  -8,  -7,  -9, -17, -24,
-       -8,  -4,   7, -12,  -3, -13,  -4, -14,
-        2,  -8,   0,  -1,  -2,   6,   0,   4,
-       -3,   9,  12,   9,  14,  10,   3,   2,
-       -6,   3,  13,  19,   7,  10,  -3,  -9,
-      -12,  -3,   8,  10,  13,   3,  -7, -15,
-      -14, -18,  -7,  -1,   4,  -9, -15, -27,
-      -23,  -9, -23,  -5,  -9, -16,  -5, -17},
-    {  13,  10,  18,  15,  12,  12,   8,   5,
-       11,  13,  13,  11,  -3,   3,   8,   3,
-        7,   7,   7,   5,   4,  -3,  -5,  -3,
-        4,   3,  13,   1,   2,   1,  -1,   2,
-        3,   5,   8,   4,  -5,  -6,  -8, -11,
-       -4,   0,  -5,  -1,  -7, -12,  -8, -16,
-       -6,  -6,   0,   2,  -9,  -9, -11,  -3,
-       -9,   2,   3,  -1,  -5, -13,   4, -20},
-    {  -9,  22,  22,  27,  27,  19,  10,  20,
-      -17,  20,  32,  41,  58,  25,  30,   0,
-      -20,   6,   9,  49,  47,  35,  19,   9,
-        3,  22,  24,  45,  57,  40,  57,  36,
-      -18,  28,  19,  47,  31,  34,  39,  23,
-      -16, -27,  15,   6,   9,  17,  10,   5,
-      -22, -23, -30, -16, -16, -23, -36, -32,
-      -33, -28, -22, -43,  -5, -32, -20, -41},
-    { -74, -35, -18, -18, -11,  15,   4, -17,
-      -12,  17,  14,  17,  17,  38,  23,  11,
-       10,  17,  23,  15,  20,  45,  44,  13,
-       -8,  22,  24,  27,  26,  33,  26,   3,
-      -18,  -4,  21,  24,  27,  23,   9, -11,
-      -19,  -3,  11,  21,  23,  16,   7,  -9,
-      -27, -11,   4,  13,  14,   4,  -5, -17,
-      -53, -34, -21, -11, -28, -14, -24, -43},
-}};
-// clang-format on
-
-struct PhaseScore {
-    Score mg = 0;
-    Score eg = 0;
-};
+constexpr int psqt_index(Color color, PieceType type, Square square) {
+    return eval::kPsqt + (type * kSquareCount) + (color == White ? square ^ 56 : square);
+}
 
 // Material and position of every piece on every square, from White's point of view (Black's
 // entries are negative), folded together at compile time.
 consteval std::array<std::array<PhaseScore, kSquareCount>, kPieceCount> make_psqt() {
     std::array<std::array<PhaseScore, kSquareCount>, kPieceCount> psqt{};
-    for (int type = 0; type < kPieceTypeCount; ++type) {
-        const auto t = static_cast<std::size_t>(type);
-        for (int square = 0; square < kSquareCount; ++square) {
-            const auto s = static_cast<std::size_t>(square);
-            const auto white_index = static_cast<std::size_t>(square ^ 56);
-            const auto white = static_cast<std::size_t>(make_piece(White, PieceType(type)));
-            const auto black = static_cast<std::size_t>(make_piece(Black, PieceType(type)));
-            psqt.at(white).at(s) = {.mg = kMgValue.at(t) + kMgTable.at(t).at(white_index),
-                                    .eg = kEgValue.at(t) + kEgTable.at(t).at(white_index)};
-            psqt.at(black).at(s) = {.mg = -(kMgValue.at(t) + kMgTable.at(t).at(s)),
-                                    .eg = -(kEgValue.at(t) + kEgTable.at(t).at(s))};
+    for (const Color color : {White, Black}) {
+        const int sign = color == White ? 1 : -1;
+        for (int type = 0; type < kPieceTypeCount; ++type) {
+            const PhaseScore& material = kParamValues.at(static_cast<std::size_t>(type));
+            for (int square = 0; square < kSquareCount; ++square) {
+                const PhaseScore& position = kParamValues.at(
+                    static_cast<std::size_t>(psqt_index(color, PieceType(type), Square(square))));
+                psqt.at(make_piece(color, PieceType(type))).at(static_cast<std::size_t>(square)) = {
+                    .mg = sign * (material.mg + position.mg),
+                    .eg = sign * (material.eg + position.eg)};
+            }
         }
     }
     return psqt;
 }
 
 constexpr auto kPsqt = make_psqt();
+
+constexpr Bitboard adjacent_files(int file) {
+    return (file > 0 ? file_bb(file - 1) : 0) | (file < 7 ? file_bb(file + 1) : 0);
+}
+
+// The ranks strictly in front of a square, as seen from `color`.
+constexpr Bitboard forward_ranks(Color color, Square square) {
+    const int rank = rank_of(square);
+    if (color == White) {
+        return rank == 7 ? 0 : ~Bitboard{0} << (8 * (rank + 1));
+    }
+    return (Bitboard{1} << (8 * rank)) - 1;
+}
+
+constexpr Bitboard pawn_attacks_bb(Color color, Bitboard pawns) {
+    const Bitboard sideways = shift_east(pawns) | shift_west(pawns);
+    return color == White ? shift_north(sideways) : shift_south(sideways);
+}
+
+constexpr int distance(Square a, Square b) {
+    return std::max(std::abs(file_of(a) - file_of(b)), std::abs(rank_of(a) - rank_of(b)));
+}
+
+// The attacks of a knight, bishop, rook or queen. piece_attacks() does the same, but this one
+// can be inlined into the evaluation.
+inline Bitboard attacks_of(PieceType type, Square square, Bitboard occupied) {
+    switch (type) {
+        case Knight:
+            return knight_attacks(square);
+        case Bishop:
+            return bishop_attacks(square, occupied);
+        case Rook:
+            return rook_attacks(square, occupied);
+        default:
+            return queen_attacks(square, occupied);
+    }
+}
+
+struct NoTrace {};
+
+// Sums the terms from White's point of view. With Trace set it records how often each term
+// occurs instead of adding up its value.
+template <bool Trace>
+class Evaluator {
+public:
+    explicit Evaluator(const Position& pos) : pos_(pos) {}
+
+    Score run() {
+        for (const Color color : {White, Black}) {
+            pawn_attacks_[color] = pawn_attacks_bb(color, pos_.pieces(color, Pawn));
+        }
+        material_and_psqt();
+        for (const Color color : {White, Black}) {
+            pawns(color);
+            pieces(color);
+            king(color);
+        }
+        const int phase = game_phase(pos_);
+        if constexpr (Trace) {
+            trace_.phase = phase;
+        }
+        return ((mg_ * phase) + (eg_ * (kMaxPhase - phase))) / kMaxPhase;
+    }
+
+    [[nodiscard]] const EvalTrace& trace() const
+        requires Trace
+    {
+        return trace_;
+    }
+
+private:
+    void add(Color color, int index, int count = 1) {
+        const int signed_count = color == White ? count : -count;
+        const auto i = static_cast<std::size_t>(index);
+        if constexpr (Trace) {
+            trace_.coefficients[i] += signed_count;
+        } else {
+            mg_ += kParamValues[i].mg * signed_count;
+            eg_ += kParamValues[i].eg * signed_count;
+        }
+    }
+
+    void material_and_psqt() {
+        Bitboard occupied = pos_.pieces();
+        while (occupied != 0) {
+            const Square square = pop_lsb(occupied);
+            const Piece piece = pos_.piece_on(square);
+            if constexpr (Trace) {
+                add(color_of(piece), eval::kMaterial + type_of(piece));
+                add(color_of(piece), psqt_index(color_of(piece), type_of(piece), square));
+            } else {
+                mg_ += kPsqt[piece][square].mg;
+                eg_ += kPsqt[piece][square].eg;
+            }
+        }
+    }
+
+    void pawns(Color us) {
+        const Color them = ~us;
+        const Bitboard ours = pos_.pieces(us, Pawn);
+        const Bitboard theirs = pos_.pieces(them, Pawn);
+        Bitboard remaining = ours;
+        while (remaining != 0) {
+            const Square square = pop_lsb(remaining);
+            const int file = file_of(square);
+            const int rank = relative_rank(us, square);
+            const Bitboard forward = forward_ranks(us, square);
+            const Bitboard adjacent = adjacent_files(file);
+            // Only the front pawn of a doubled pair can be passed.
+            const bool doubled = (forward & file_bb(file) & ours) != 0;
+            const bool passed = !doubled && (forward & (adjacent | file_bb(file)) & theirs) == 0;
+
+            if (doubled) {
+                add(us, eval::kDoubledPawn);
+            }
+            if ((adjacent & ours) == 0) {
+                add(us, eval::kIsolatedPawn);
+            } else if (!passed && rank < 7 && (adjacent & ~forward & ours) == 0 &&
+                       has(pawn_attacks_[them], offset(square, pawn_push(us)))) {
+                // No pawn of ours can defend it, and it cannot advance safely.
+                add(us, eval::kBackwardPawn);
+            }
+            if (((shift_east(square_bb(square)) | shift_west(square_bb(square))) & ours) != 0) {
+                add(us, eval::kPhalanxPawn + rank);
+            }
+            if (has(pawn_attacks_[us], square)) {
+                add(us, eval::kSupportedPawn + rank);
+            }
+            if (passed) {
+                passed_pawn(us, square, rank);
+            }
+        }
+    }
+
+    void passed_pawn(Color us, Square square, int rank) {
+        add(us, eval::kPassedPawn + rank);
+        if (rank == 7) {
+            return;
+        }
+        const Square stop = offset(square, pawn_push(us));
+        if (pos_.piece_on(stop) != NoPiece) {
+            add(us, eval::kPassedBlocked + rank);
+        }
+        add(us, eval::kPassedOwnKingDistance + distance(pos_.king_square(us), stop));
+        add(us, eval::kPassedEnemyKingDistance + distance(pos_.king_square(~us), stop));
+    }
+
+    void pieces(Color us) {
+        const Color them = ~us;
+        const Bitboard occupied = pos_.pieces();
+        const Bitboard mobility_area = ~pos_.pieces(us) & ~pawn_attacks_[them];
+        const Square enemy_king = pos_.king_square(them);
+        const Bitboard king_zone = king_attacks(enemy_king) | square_bb(enemy_king);
+        int attackers = 0;
+        for (const PieceType type : {Knight, Bishop, Rook, Queen}) {
+            Bitboard remaining = pos_.pieces(us, type);
+            while (remaining != 0) {
+                const Square square = pop_lsb(remaining);
+                const Bitboard attacks = attacks_of(type, square, occupied);
+                add(us, kMobility[type] + popcount(attacks & mobility_area));
+                if (const Bitboard zone_attacks = attacks & king_zone; zone_attacks != 0) {
+                    ++attackers;
+                    add(us, eval::kKingZoneAttack + type - Knight, popcount(zone_attacks));
+                }
+                if (type == Rook) {
+                    const Bitboard file = file_bb(file_of(square));
+                    if ((file & pos_.pieces(Pawn)) == 0) {
+                        add(us, eval::kRookOpenFile);
+                    } else if ((file & pos_.pieces(us, Pawn)) == 0) {
+                        add(us, eval::kRookSemiOpenFile);
+                    }
+                }
+            }
+            if (const int threatened = popcount(pawn_attacks_[us] & pos_.pieces(them, type));
+                threatened != 0) {
+                add(us, eval::kThreatByPawn + type - Knight, threatened);
+            }
+        }
+        add(us, eval::kKingAttackers + std::min(attackers, 3));
+        if (more_than_one(pos_.pieces(us, Bishop))) {
+            add(us, eval::kBishopPair);
+        }
+    }
+
+    void king(Color us) {
+        const Square king = pos_.king_square(us);
+        const Bitboard ours = pos_.pieces(us, Pawn);
+        const int file = file_of(king);
+        const Bitboard shield_files = file_bb(file) | adjacent_files(file);
+        for (int step = 1; step <= 2 && relative_rank(us, king) + step < 8; ++step) {
+            const int rank = rank_of(king) + (us == White ? step : -step);
+            if (const int count = popcount(ours & shield_files & rank_bb(rank)); count != 0) {
+                add(us, eval::kPawnShield + step - 1, count);
+            }
+        }
+        if ((file_bb(file) & ours) == 0) {
+            add(us, (file_bb(file) & pos_.pieces(Pawn)) == 0 ? eval::kKingOpenFile
+                                                             : eval::kKingSemiOpenFile);
+        }
+    }
+
+    const Position& pos_;
+    std::array<Bitboard, kColorCount> pawn_attacks_{};
+    Score mg_ = 0;
+    Score eg_ = 0;
+    [[no_unique_address]] std::conditional_t<Trace, EvalTrace, NoTrace> trace_{};
+};
 
 }  // namespace
 
@@ -159,21 +265,18 @@ int game_phase(const Position& pos) {
 }
 
 Score piece_value(PieceType type) {
-    return type == NoPieceType ? 0 : kMgValue[type];
+    return type == NoPieceType ? 0 : kParamValues[type].mg;
 }
 
 Score evaluate(const Position& pos) {
-    PhaseScore total;
-    Bitboard occupied = pos.pieces();
-    while (occupied != 0) {
-        const Square square = pop_lsb(occupied);
-        const PhaseScore& entry = kPsqt[pos.piece_on(square)][square];
-        total.mg += entry.mg;
-        total.eg += entry.eg;
-    }
-    const int phase = game_phase(pos);
-    const Score white_score = ((total.mg * phase) + (total.eg * (kMaxPhase - phase))) / kMaxPhase;
+    const Score white_score = Evaluator<false>(pos).run();
     return pos.side_to_move() == White ? white_score : -white_score;
+}
+
+EvalTrace trace_evaluation(const Position& pos) {
+    Evaluator<true> evaluator(pos);
+    static_cast<void>(evaluator.run());
+    return evaluator.trace();
 }
 
 }  // namespace chess

@@ -11,6 +11,7 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
 endif()
 
 option(CHESS_BUILD_TESTS "Build the unit tests" ON)
+option(CHESS_BUILD_TOOLS "Build the developer tools (the Texel tuner)" ON)
 option(CHESS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(CHESS_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(CHESS_ENABLE_CLANG_TIDY "Run clang-tidy on project sources while compiling" OFF)
@@ -28,6 +29,10 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 include(ProjectOptions)
 
 add_subdirectory(src)
+
+if(CHESS_BUILD_TOOLS)
+  add_subdirectory(tools/tuner)
+endif()
 
 if(CHESS_BUILD_TESTS)
   enable_testing()
