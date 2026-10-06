@@ -40,6 +40,10 @@ constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
 constexpr int kLmrMinDepth = 3;
 constexpr int kLmrMinMoves = 3;
+// Aspiration windows are used from this depth on, starting this wide on each side of the previous
+// iteration's score.
+constexpr int kAspirationMinDepth = 5;
+constexpr Score kAspirationDelta = 25;
 
 struct TimeBudget {
     // No new iteration starts after this.
@@ -263,7 +267,10 @@ public:
         const int max_depth = std::clamp(limits_.depth, 1, kMaxPly - 1);
         for (int depth = 1; depth <= max_depth; ++depth) {
             selective_depth_ = 0;
-            const Score score = negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true, false);
+            const Score score =
+                depth >= kAspirationMinDepth && !is_mate_score(result.score)
+                    ? aspiration_search(depth, result.score)
+                    : negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true, false);
             if (aborted_) {
                 break;
             }
@@ -298,6 +305,29 @@ public:
     }
 
 private:
+    // Searches the root with a narrow window around the previous iteration's score, which cuts
+    // off more of the tree. A score outside the window only bounds the true one, so the search is
+    // repeated with the window widened on the side that failed, more each time.
+    Score aspiration_search(int depth, Score previous) {
+        Score delta = kAspirationDelta;
+        Score alpha = std::max(previous - delta, -kInfiniteScore);
+        Score beta = std::min(previous + delta, kInfiniteScore);
+        while (true) {
+            const Score score = negamax(depth, alpha, beta, 0, true, false);
+            if (aborted_) {
+                return 0;
+            }
+            if (score <= alpha) {
+                alpha = std::max(score - delta, -kInfiniteScore);
+            } else if (score >= beta) {
+                beta = std::min(score + delta, kInfiniteScore);
+            } else {
+                return score;
+            }
+            delta *= 2;
+        }
+    }
+
     // `on_pv` is set along the previous iteration's principal variation, whose moves are tried
     // first. A PV node, whose exact score matters, is one searched with an open window instead:
     // every node of the null window searches is a non-PV node, while a node off the previous PV
