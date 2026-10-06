@@ -170,11 +170,17 @@ private:
 class MovePicker {
 public:
     // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
-    // valuable attacker) and promotions, then the killer moves, then the other quiet moves by
-    // history score.
-    MovePicker(const Position& pos, const MoveList& moves, Move hash_move,
-               const Killers& killers = {}, const History* history = nullptr) {
+    // valuable attacker) and queen promotions, then the killer moves, then the other quiet moves
+    // by history score, and underpromotions last. With `tactical_only`, only captures and queen
+    // promotions are returned.
+    void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
+               const History* history, bool tactical_only = false) {
+        size_ = 0;
+        current_ = 0;
         for (const Move move : moves) {
+            if (tactical_only && !is_tactical(pos, move)) {
+                continue;
+            }
             moves_[size_] = move;
             scores_[size_] = score(pos, move, hash_move, killers, history);
             ++size_;
@@ -204,8 +210,13 @@ private:
         constexpr int kTacticalBonus = 100'000;
         constexpr int kFirstKillerBonus = 90'000;
         constexpr int kSecondKillerBonus = 80'000;
+        constexpr int kUnderpromotionScore = -kMaxHistory - 1;
         if (move == hash_move) {
             return kHashBonus;
+        }
+        // Promoting to anything but a queen rarely helps, so it is tried after every quiet move.
+        if (move.type() == MoveType::Promotion && move.promotion() != Queen) {
+            return kUnderpromotionScore;
         }
         int value = 0;
         if (is_capture(pos, move)) {
@@ -215,7 +226,7 @@ private:
             value += kTacticalBonus + (piece_value(victim) * 8) - static_cast<int>(attacker);
         }
         if (move.type() == MoveType::Promotion) {
-            value += kTacticalBonus + piece_value(move.promotion());
+            value += kTacticalBonus + piece_value(Queen);
         }
         if (value != 0) {
             return value;
@@ -274,7 +285,8 @@ public:
             // From here on the search may be interrupted: a move is known.
             can_abort_ = true;
             if (result.best_move.is_null() || stop_.stop_requested() ||
-                (budget_.soft.has_value() && elapsed() >= *budget_.soft)) {
+                (budget_.soft.has_value() &&
+                 (elapsed() >= *budget_.soft || mate_found(score, depth)))) {
                 break;
             }
         }
@@ -286,6 +298,10 @@ public:
     }
 
 private:
+    // `on_pv` is set along the previous iteration's principal variation, whose moves are tried
+    // first. A PV node, whose exact score matters, is one searched with an open window instead:
+    // every node of the null window searches is a non-PV node, while a node off the previous PV
+    // can be a PV node when the search finds a new best line through it.
     // `after_null` is set right after a null move, so two are never made in a row.
     // NOLINTNEXTLINE(misc-no-recursion): recursion depth is bounded by kMaxPly.
     Score negamax(int depth, Score alpha, Score beta, std::size_t ply, bool on_pv,
@@ -294,10 +310,11 @@ private:
         if (depth <= 0) {
             return quiescence(alpha, beta, ply);
         }
+        const bool pv_node = beta - alpha > 1;
         if (count_node()) {
             return 0;
         }
-        if (ply > 0 && (pos_.is_repetition() || insufficient_material(pos_))) {
+        if (ply > 0 && (pos_.is_repetition(ply) || insufficient_material(pos_))) {
             return kDrawScore;
         }
         if (ply >= kLastPly) {
@@ -308,9 +325,10 @@ private:
         Move tt_move = Move::null();
         if (const auto entry = tt_.probe(key)) {
             tt_move = entry->move;
-            // The root always searches, so a best move is known. A position the 50-move rule may
-            // already have drawn is searched too, since the entry cannot know about the rule.
-            if (ply > 0 && entry->depth >= depth && pos_.halfmove_clock() < 100) {
+            // PV nodes always search, so the root knows a best move and the principal variation
+            // is not cut short. A position the 50-move rule may already have drawn is searched
+            // too, since the entry cannot know about the rule.
+            if (!pv_node && entry->depth >= depth && pos_.halfmove_clock() < 100) {
                 const Score score = score_from_tt(entry->score, ply);
                 if (entry->bound == Bound::Exact ||
                     (entry->bound == Bound::Lower && score >= beta) ||
@@ -320,7 +338,9 @@ private:
             }
         }
 
-        const MoveList moves = generate_legal_moves(pos_);
+        PlyData& data = stack_[ply];
+        const MoveList& moves = data.moves;
+        generate_legal_moves(pos_, data.moves);
         const bool in_check = pos_.in_check();
         if (moves.empty()) {
             return in_check ? mated_score(ply) : kDrawScore;
@@ -330,10 +350,11 @@ private:
         }
 
         // Null move pruning: if passing the turn still fails high in a reduced search, a real
-        // move almost surely would too. Skipped in check, along the PV, and without pieces
+        // move almost surely would too. Skipped in check, in PV nodes, and without pieces
         // (zugzwang).
-        if (!on_pv && !after_null && !in_check && depth >= kNullMoveMinDepth && beta < kMateBound &&
-            has_non_pawn_material(pos_, pos_.side_to_move()) && evaluate(pos_) >= beta) {
+        if (!pv_node && !after_null && !in_check && depth >= kNullMoveMinDepth &&
+            beta < kMateBound && has_non_pawn_material(pos_, pos_.side_to_move()) &&
+            evaluate(pos_) >= beta) {
             const int reduction = 3 + (depth / 4);
             pos_.make_null_move();
             const Score score =
@@ -354,13 +375,14 @@ private:
         if (ply + 2 <= kLastPly) {
             killers_[ply + 2] = {};
         }
-        MovePicker picker(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply],
-                          &history_);
+        MovePicker& picker = data.picker;
+        picker.reset(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply], &history_);
         const Score original_alpha = alpha;
         Score best = -kInfiniteScore;
         Move best_move = Move::null();
         // Quiet moves searched before the current one, penalized when another move cuts off.
-        MoveList quiets_tried;
+        MoveList& quiets_tried = data.quiets_tried;
+        quiets_tried.clear();
         int moves_searched = 0;
         while (const auto move = picker.next()) {
             const bool quiet = is_quiet(pos_, *move);
@@ -383,7 +405,7 @@ private:
                 if (depth >= kLmrMinDepth && moves_searched >= kLmrMinMoves && quiet && !killer &&
                     !in_check && !gives_check) {
                     int reduction = lmr_reduction(depth, moves_searched);
-                    if (on_pv) {
+                    if (pv_node) {
                         --reduction;
                     }
                     reduction = std::clamp(reduction, 0, depth - 2);
@@ -458,16 +480,17 @@ private:
             alpha = std::max(alpha, best);
         }
 
-        const MoveList moves = generate_legal_moves(pos_);
-        if (in_check && moves.empty()) {
+        PlyData& data = stack_[ply];
+        generate_legal_moves(pos_, data.moves);
+        if (in_check && data.moves.empty()) {
             return mated_score(ply);
         }
 
-        MovePicker picker(pos_, moves, Move::null());
+        MovePicker& picker = data.picker;
+        // Out of check only captures and queen promotions are searched; the rest are not even
+        // scored.
+        picker.reset(pos_, data.moves, Move::null(), {}, nullptr, !in_check);
         while (const auto move = picker.next()) {
-            if (!in_check && !is_tactical(pos_, *move)) {
-                continue;
-            }
             pos_.make_move(*move);
             const Score score = -quiescence(-beta, -alpha, ply + 1);
             pos_.unmake_move();
@@ -512,6 +535,12 @@ private:
         const std::size_t child_length = pv_length_[ply + 1];
         std::copy_n(child.begin(), child_length, std::next(line.begin()));
         pv_length_[ply] = child_length + 1;
+    }
+
+    // Whether an iteration to `depth` proved a mate no deeper than that. Searching deeper could
+    // only find a shorter one, so a search on the clock saves its time instead.
+    static bool mate_found(Score score, int depth) {
+        return score >= kMateBound && kMateScore - score <= depth;
     }
 
     static Score mated_score(std::size_t ply) { return -kMateScore + static_cast<Score>(ply); }
@@ -563,6 +592,16 @@ private:
 
     std::array<Killers, kMaxPly + 1> killers_{};
     History history_;
+
+    // The move lists of the node being searched at each ply. A node's lists are only used while
+    // it is on the search path, and only one node per ply is, so they live here rather than in
+    // the recursive functions' stack frames, keeping the search thread's stack small.
+    struct PlyData {
+        MoveList moves;
+        MoveList quiets_tried;
+        MovePicker picker;
+    };
+    std::array<PlyData, kMaxPly + 1> stack_{};
 };
 
 }  // namespace

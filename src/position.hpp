@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -69,8 +70,12 @@ public:
     void unmake_null_move();
 
     // True when the current position occurred before with the same side to move since the last
-    // capture or pawn move. Search treats a single repetition as a draw.
-    [[nodiscard]] bool is_repetition() const noexcept;
+    // capture or pawn move, and the search should score it as a draw: either the earlier
+    // occurrence is among the last `search_ply` - 1 plies (it repeats a position of the search
+    // tree, after the root, so the side that went back can force it again), or the position
+    // occurred twice before (a threefold repetition, a draw by the rules). A position repeated
+    // only once from the game before the search is not a draw yet.
+    [[nodiscard]] bool is_repetition(std::size_t search_ply) const noexcept;
 
     // Number of moves that can be taken back.
     [[nodiscard]] std::size_t ply() const noexcept { return history_.size(); }
@@ -99,8 +104,13 @@ private:
     // Sets up the position from FEN on an empty board; false if the FEN is invalid.
     [[nodiscard]] bool parse_fen(std::string_view fen);
 
+    // Board updates. The key is updated too, unless UpdateKey is false: taking a move back
+    // restores the key saved before the move instead.
+    template <bool UpdateKey = true>
     void put_piece(Piece piece, Square square) noexcept;
+    template <bool UpdateKey = true>
     void remove_piece(Square square) noexcept;
+    template <bool UpdateKey = true>
     void move_piece(Square from, Square to) noexcept;
 
     // Sets en_passant_ to the square behind a double-pushed pawn when it can be captured.

@@ -3,6 +3,7 @@
 #include <stop_token>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "search.hpp"
@@ -91,6 +92,17 @@ TEST_CASE("search reports every completed iteration", "[search]") {
     CHECK_FALSE(result.best_move.is_null());
 }
 
+TEST_CASE("the principal variation is not cut short by the transposition table", "[search]") {
+    // Table hits used to end the line early: here a 5-move PV at depth 8.
+    Position pos = test::position_from("8/3k4/8/8/8/8/3PK3/8 w - - 0 1");
+    SearchLimits limits;
+    limits.depth = 8;
+    TranspositionTable tt(1);
+    static_cast<void>(search(pos, limits, tt, {}, [](const SearchInfo& info) {
+        CHECK(std::cmp_greater_equal(info.pv.size(), info.depth));
+    }));
+}
+
 TEST_CASE("search respects node limits and stop requests", "[search]") {
     Position pos;
     SearchLimits limits;
@@ -124,6 +136,17 @@ TEST_CASE("search leaves a reserve on a low clock even with a large increment", 
     CHECK(elapsed < 340ms);
 }
 
+TEST_CASE("a search on the clock stops once it has found a mate", "[search]") {
+    using namespace std::chrono_literals;
+    Position pos = test::position_from("6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1");
+    SearchLimits limits;
+    limits.time[White] = 60s;
+    TranspositionTable tt(1);
+    const SearchResult result = search(pos, limits, tt);
+    CHECK(result.best_move.to_uci() == "d1d8");
+    CHECK(result.depth == 1);
+}
+
 TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[search]") {
     // A knight cannot mate a bare king.
     Position knight = test::position_from("8/8/8/4k3/8/8/8/3NK3 w - - 0 1");
@@ -134,4 +157,14 @@ TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[sea
     CHECK(search_to_depth(fifty, 3).score == kDrawScore);
     Position fresh = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 0 80");
     CHECK(search_to_depth(fresh, 3).score > 800);
+}
+
+TEST_CASE("search does not take a single repetition of the game for a draw", "[search]") {
+    // A queen down, Black could go back to a position of the game with Ke8. That repeats it only
+    // once, which is not a draw, so the search must still see the lost position.
+    Position pos = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 0 1");
+    for (const auto* const move : {"e1f2", "e8e7", "f2e1"}) {
+        pos.make_move(test::legal_move(pos, move));
+    }
+    CHECK(search_to_depth(pos, 4).score < -500);
 }

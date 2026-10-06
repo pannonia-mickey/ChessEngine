@@ -27,7 +27,7 @@ public:
     Uci& operator=(Uci&&) = delete;
 
     // Reads commands until "quit" or end of input. At end of input a running search is allowed
-    // to finish.
+    // to finish, except an infinite one, which is stopped.
     void loop();
 
     // Handles a single command line. Returns false when the engine should exit.
@@ -36,7 +36,8 @@ public:
     // The position set by the last valid "position" command (moves already played).
     [[nodiscard]] const Position& position() const noexcept { return position_; }
 
-    // Blocks until the running search, if any, has printed its best move.
+    // Blocks until the running search, if any, has printed its best move. An infinite search
+    // would never end on its own, so it is stopped first.
     void wait();
 
 private:
@@ -61,6 +62,8 @@ private:
     Position position_;
     std::chrono::milliseconds move_overhead_;
     TranspositionTable tt_;
+    // Whether the last "go" was "go infinite", which only ends when stopped.
+    bool search_infinite_ = false;
     // Declared last so it is joined before the members the search thread uses are destroyed.
     std::jthread search_thread_;
 };

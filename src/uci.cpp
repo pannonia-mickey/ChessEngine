@@ -137,6 +137,9 @@ void Uci::loop() {
 }
 
 void Uci::wait() {
+    if (search_infinite_) {
+        search_thread_.request_stop();
+    }
     if (search_thread_.joinable()) {
         search_thread_.join();
     }
@@ -299,6 +302,7 @@ void Uci::cmd_go(std::string_view args) {
 
     SearchLimits limits = parse_go(tokens);
     limits.move_overhead = move_overhead_;
+    search_infinite_ = limits.infinite;
     search_thread_ = std::jthread([this, limits, pos = position_](std::stop_token stop) mutable {
         const SearchResult result =
             search(pos, limits, tt_, std::move(stop),

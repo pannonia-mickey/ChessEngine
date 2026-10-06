@@ -170,6 +170,12 @@ void generate_castling(const Context& ctx, MoveList& list) {
 }  // namespace
 
 MoveList generate_legal_moves(const Position& pos) {
+    MoveList list;
+    generate_legal_moves(pos, list);
+    return list;
+}
+
+void generate_legal_moves(const Position& pos, MoveList& list) {
     const Color us = pos.side_to_move();
     const Square king = pos.king_square(us);
     const Bitboard checkers = pos.checkers();
@@ -183,17 +189,16 @@ MoveList generate_legal_moves(const Position& pos) {
         .pinned = pinned_pieces(pos, us, king),
         .target = checkers == 0 ? ~Bitboard{0} : between_bb(king, lsb(checkers)) | checkers};
 
-    MoveList list;
+    list.clear();
     generate_king_moves(ctx, list);
     if (more_than_one(checkers)) {
-        return list;  // Double check: only the king can move.
+        return;  // Double check: only the king can move.
     }
     if (checkers == 0) {
         generate_castling(ctx, list);
     }
     generate_pawn_moves(ctx, list);
     generate_piece_moves(ctx, list);
-    return list;
 }
 
 std::optional<Move> parse_uci_move(const Position& pos, std::string_view text) {
