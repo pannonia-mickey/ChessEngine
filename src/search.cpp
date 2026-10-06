@@ -40,6 +40,10 @@ constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
 constexpr int kLmrMinDepth = 3;
 constexpr int kLmrMinMoves = 3;
+// Iterations from this depth on search a window around the previous iteration's score, this many
+// centipawns wide on each side at first.
+constexpr int kAspirationMinDepth = 4;
+constexpr Score kAspirationDelta = 25;
 
 struct TimeBudget {
     // No new iteration starts after this.
@@ -263,7 +267,7 @@ public:
         const int max_depth = std::clamp(limits_.depth, 1, kMaxPly - 1);
         for (int depth = 1; depth <= max_depth; ++depth) {
             selective_depth_ = 0;
-            const Score score = negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true, false);
+            const Score score = aspiration_search(depth, result.score);
             if (aborted_) {
                 break;
             }
@@ -298,6 +302,40 @@ public:
     }
 
 private:
+    // Aspiration windows: the score rarely moves far from one iteration to the next, so the root
+    // is searched with a narrow window around the previous score, which cuts off more of the tree.
+    // A score outside the window is only a bound, so the window is widened on that side and the
+    // iteration searched again. Mate scores and shallow iterations, whose scores swing too much,
+    // get the full window.
+    Score aspiration_search(int depth, Score previous) {
+        Score delta = kAspirationDelta;
+        Score alpha = -kInfiniteScore;
+        Score beta = kInfiniteScore;
+        if (depth >= kAspirationMinDepth && !is_mate_score(previous)) {
+            alpha = std::max(previous - delta, -kInfiniteScore);
+            beta = std::min(previous + delta, kInfiniteScore);
+        }
+        while (true) {
+            const Score score = negamax(depth, alpha, beta, 0, true, false);
+            if (aborted_) {
+                return score;
+            }
+            // A mate score found outside the window is far from it: open that side at once.
+            if (score <= alpha && alpha > -kInfiniteScore) {
+                // Pull beta in too: the true score is below the old window.
+                beta = (alpha + beta) / 2;
+                alpha = is_mate_score(score) ? -kInfiniteScore
+                                             : std::max(score - delta, -kInfiniteScore);
+            } else if (score >= beta && beta < kInfiniteScore) {
+                beta =
+                    is_mate_score(score) ? kInfiniteScore : std::min(score + delta, kInfiniteScore);
+            } else {
+                return score;
+            }
+            delta += delta / 2;
+        }
+    }
+
     // `on_pv` is set along the previous iteration's principal variation, whose moves are tried
     // first. A PV node, whose exact score matters, is one searched with an open window instead:
     // every node of the null window searches is a non-PV node, while a node off the previous PV
