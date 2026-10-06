@@ -42,7 +42,7 @@ constexpr auto kParams = static_cast<std::size_t>(kParamCount);
 struct Options {
     std::string dataset;
     std::string output = "eval_values.hpp";
-    int epochs = 3000;
+    int epochs = 1500;
     double learning_rate = 1.0;
     unsigned threads = std::max(1U, std::thread::hardware_concurrency());
     std::size_t limit = 0;
