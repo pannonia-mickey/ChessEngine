@@ -470,6 +470,11 @@ private:
         }
 
         const bool in_check = pos_.in_check();
+        // The 50-move rule also draws at the horizon, unless the last move gave mate.
+        if (ply > 0 && pos_.halfmove_clock() >= 100) {
+            generate_legal_moves(pos_, stack_[ply].moves);
+            return in_check && stack_[ply].moves.empty() ? mated_score(ply) : kDrawScore;
+        }
         Score best = -kInfiniteScore;
         if (!in_check) {
             // Standing pat: the side to move can usually do at least as well as doing nothing.

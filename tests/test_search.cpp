@@ -159,6 +159,20 @@ TEST_CASE("search scores dead positions and the fifty-move rule as draws", "[sea
     CHECK(search_to_depth(fresh, 3).score > 800);
 }
 
+TEST_CASE("search sees the fifty-move rule at the horizon", "[search]") {
+    // The fiftieth move lands exactly on the leaves, where only the quiescence search runs.
+    Position last_move = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 99 80");
+    CHECK(search_to_depth(last_move, 1).score == kDrawScore);
+    Position three_plies = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 97 80");
+    CHECK(search_to_depth(three_plies, 3).score == kDrawScore);
+
+    // A mate given with the hundredth half-move still counts.
+    Position mate = test::position_from("k7/8/1K6/8/8/8/7Q/8 w - - 99 80");
+    const SearchResult result = search_to_depth(mate, 1);
+    CHECK(result.best_move.to_uci() == "h2h8");
+    CHECK(result.score >= kMateBound);
+}
+
 TEST_CASE("search does not take a single repetition of the game for a draw", "[search]") {
     // A queen down, Black could go back to a position of the game with Ke8. That repeats it only
     // once, which is not a draw, so the search must still see the lost position.
