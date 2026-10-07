@@ -1,5 +1,8 @@
+#include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <cstdint>
+#include <iterator>
 #include <stop_token>
 #include <string>
 #include <thread>
@@ -122,6 +125,53 @@ TEST_CASE("search respects node limits and stop requests", "[search]") {
     const SearchResult stopped = search(pos, SearchLimits{}, tt, source.get_token());
     CHECK(stopped.depth == 1);
     CHECK_FALSE(stopped.best_move.is_null());
+}
+
+TEST_CASE("an interrupted iteration still plays the better root move it found", "[search]") {
+    // The positions are searched deeper until an iteration changes its mind about the best move;
+    // the same search is then cut off at that iteration's last node. By then the new move has
+    // been searched to the end, so it is played rather than the previous iteration's move.
+    struct Case {
+        std::string_view fen;
+        int max_depth;
+    };
+    const auto cases = {
+        // Changes its mind at depth 4, before aspiration windows are used.
+        Case{.fen = "4k3/8/4n3/2p5/1Q1P4/8/8/4K3 w - - 0 1", .max_depth = 6},
+        // Changes its mind at depth 7, inside an aspiration window.
+        Case{.fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+             .max_depth = 8},
+    };
+    for (const Case& test_case : cases) {
+        CAPTURE(test_case.fen);
+        Position pos = test::position_from(test_case.fen);
+        struct Iteration {
+            int depth;
+            std::uint64_t nodes;
+            Move best_move;
+        };
+        std::vector<Iteration> iterations;
+        SearchLimits limits;
+        limits.depth = test_case.max_depth;
+        TranspositionTable tt(1);
+        static_cast<void>(search(pos, limits, tt, {}, [&](const SearchInfo& info) {
+            iterations.push_back(
+                {.depth = info.depth, .nodes = info.nodes, .best_move = info.pv.front()});
+        }));
+        const auto changed = std::ranges::adjacent_find(
+            iterations,
+            [](const Iteration& a, const Iteration& b) { return a.best_move != b.best_move; });
+        REQUIRE(changed != iterations.end());
+        const Iteration& previous = *changed;
+        const Iteration& deeper = *std::next(changed);
+
+        SearchLimits cut_off;
+        cut_off.nodes = deeper.nodes - 1;
+        TranspositionTable fresh(1);
+        const SearchResult result = search(pos, cut_off, fresh);
+        CHECK(result.depth == previous.depth);
+        CHECK(result.best_move == deeper.best_move);
+    }
 }
 
 TEST_CASE("search leaves a reserve on a low clock even with a large increment", "[search]") {

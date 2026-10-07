@@ -275,11 +275,18 @@ public:
         const int max_depth = std::clamp(limits_.depth, 1, kMaxPly - 1);
         for (int depth = 1; depth <= max_depth; ++depth) {
             selective_depth_ = 0;
+            root_best_ = {};
             const Score score =
                 depth >= kAspirationMinDepth && !is_mate_score(result.score)
                     ? aspiration_search(depth, result.score)
                     : negamax(depth, -kInfiniteScore, kInfiniteScore, 0, true, false);
             if (aborted_) {
+                // An unfinished iteration still searched some root moves to the end, at a greater
+                // depth than the last finished one; the best of them is played. Its score may
+                // be only a bound, so the score of the finished iteration is kept.
+                if (!root_best_.move.is_null()) {
+                    result.best_move = root_best_.move;
+                }
                 break;
             }
             previous_pv_ = pv_[0];
@@ -471,6 +478,9 @@ private:
                     alpha = score;
                     best_move = *move;
                     update_pv(ply, *move);
+                    if (ply == 0 && score > root_best_.score) {
+                        root_best_ = {.move = *move, .score = score};
+                    }
                     if (alpha >= beta) {
                         if (quiet) {
                             update_quiet_stats(*move, quiets_tried, depth, ply);
@@ -634,6 +644,14 @@ private:
     // pv_[ply] holds the best line found from ply onwards (triangular PV table).
     std::array<std::array<Move, kMaxPly + 1>, kMaxPly + 1> pv_{};
     std::array<std::size_t, kMaxPly + 1> pv_length_{};
+    // The best root move searched to the end in the current iteration, kept across its
+    // aspiration re-searches: a move that failed high is at least as good as its score.
+    struct RootMove {
+        Move move = Move::null();
+        Score score = -kInfiniteScore;
+    };
+    RootMove root_best_;
+
     // The principal variation of the last completed iteration, searched first in the next one.
     std::array<Move, kMaxPly + 1> previous_pv_{};
     std::size_t previous_pv_length_ = 0;
