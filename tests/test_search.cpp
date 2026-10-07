@@ -168,9 +168,19 @@ TEST_CASE("an interrupted iteration still plays the better root move it found", 
         SearchLimits cut_off;
         cut_off.nodes = deeper.nodes - 1;
         TranspositionTable fresh(1);
-        const SearchResult result = search(pos, cut_off, fresh);
+        std::vector<SearchInfo> reports;
+        std::vector<Move> report_pvs;
+        const SearchResult result = search(pos, cut_off, fresh, {}, [&](const SearchInfo& info) {
+            reports.push_back(info);
+            report_pvs.push_back(info.pv.empty() ? Move::null() : info.pv.front());
+        });
         CHECK(result.depth == previous.depth);
         CHECK(result.best_move == deeper.best_move);
+        // The interrupted iteration is reported too, so the last PV starts with the move played.
+        REQUIRE(reports.size() == static_cast<std::size_t>(deeper.depth));
+        CHECK(reports.back().depth == deeper.depth);
+        CHECK(reports.back().lower_bound);
+        CHECK(report_pvs.back() == deeper.best_move);
     }
 }
 

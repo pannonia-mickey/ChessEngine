@@ -104,6 +104,9 @@ std::string format_info(const SearchInfo& info) {
     } else {
         line << "cp " << info.score;
     }
+    if (info.lower_bound) {
+        line << " lowerbound";
+    }
     const auto ms = std::max<std::int64_t>(info.elapsed.count(), 1);
     line << " nodes " << info.nodes << " nps " << info.nodes * 1000 / static_cast<std::uint64_t>(ms)
          << " hashfull " << info.hashfull << " time " << info.elapsed.count();

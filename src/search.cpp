@@ -287,8 +287,22 @@ public:
                 // An unfinished iteration still searched some root moves to the end, at a greater
                 // depth than the last finished one; the best of them is played. Its score may
                 // be only a bound, so the score of the finished iteration is kept.
-                if (!root_best_.move.is_null()) {
+                if (!root_best_.move.is_null() && root_best_.move != result.best_move) {
                     result.best_move = root_best_.move;
+                    // Reported too, so the last PV a GUI sees starts with the move played. The
+                    // moves not searched yet might do better: the score is a lower bound.
+                    if (on_info) {
+                        on_info(
+                            {.depth = depth,
+                             .selective_depth = selective_depth_,
+                             .score = root_best_.score,
+                             .lower_bound = true,
+                             .nodes = nodes_,
+                             .elapsed = elapsed(),
+                             .hashfull = tt_.hashfull(),
+                             .pv =
+                                 std::span<const Move>(root_best_.pv).first(root_best_.pv_length)});
+                    }
                 }
                 break;
             }
@@ -493,7 +507,10 @@ private:
                     best_move = *move;
                     update_pv(ply, *move);
                     if (ply == 0 && score > root_best_.score) {
-                        root_best_ = {.move = *move, .score = score};
+                        root_best_ = {.move = *move,
+                                      .score = score,
+                                      .pv = pv_[0],
+                                      .pv_length = pv_length_[0]};
                     }
                     if (alpha >= beta) {
                         if (quiet) {
@@ -663,6 +680,8 @@ private:
     struct RootMove {
         Move move = Move::null();
         Score score = -kInfiniteScore;
+        std::array<Move, kMaxPly + 1> pv{};
+        std::size_t pv_length = 0;
     };
     RootMove root_best_;
 
