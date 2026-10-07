@@ -36,6 +36,9 @@ constexpr std::uint64_t kCheckInterval = 1024;
 constexpr auto kLastPly = static_cast<std::size_t>(kMaxPly - 1);
 // Null move pruning is tried from this remaining depth on.
 constexpr int kNullMoveMinDepth = 3;
+// Reverse futility pruning is tried up to this remaining depth, with this margin per ply of it.
+constexpr int kRfpMaxDepth = 6;
+constexpr Score kRfpMarginPerPly = 80;
 // History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
 constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
@@ -393,13 +396,24 @@ private:
         if (ply > 0 && pos_.halfmove_clock() >= 100) {
             return kDrawScore;
         }
+        // Computed once and shared by the pruning decisions below; meaningless in check.
+        const Score static_eval = in_check ? -kInfiniteScore : evaluate(pos_);
+
+        // Reverse futility pruning: a position whose static evaluation beats beta by a margin
+        // that grows with the remaining depth is unlikely to drop below beta in a shallow search,
+        // so it is cut off without one. Skipped in check, in PV nodes, and when a mate is at
+        // stake, which the evaluation cannot judge.
+        if (!pv_node && !in_check && depth <= kRfpMaxDepth && !is_mate_score(beta) &&
+            static_eval - (kRfpMarginPerPly * depth) >= beta) {
+            return static_eval;
+        }
 
         // Null move pruning: if passing the turn still fails high in a reduced search, a real
         // move almost surely would too. Skipped in check, in PV nodes, and without pieces
         // (zugzwang).
         if (!pv_node && !after_null && !in_check && depth >= kNullMoveMinDepth &&
             beta < kMateBound && has_non_pawn_material(pos_, pos_.side_to_move()) &&
-            evaluate(pos_) >= beta) {
+            static_eval >= beta) {
             const int reduction = 3 + (depth / 4);
             pos_.make_null_move();
             const Score score =

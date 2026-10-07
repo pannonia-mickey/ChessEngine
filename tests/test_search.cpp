@@ -174,6 +174,18 @@ TEST_CASE("an interrupted iteration still plays the better root move it found", 
     }
 }
 
+TEST_CASE("search does not prune away a mate threat while far ahead", "[search]") {
+    // Two queens against a rook, but Black threatens Re1 mate. Reverse futility pruning cuts off
+    // nodes where White is far ahead; it must not hide the threat, so White stays far ahead
+    // instead of getting mated, at every depth.
+    for (int depth = 2; depth <= 7; ++depth) {
+        CAPTURE(depth);
+        Position pos = test::position_from("4r1k1/5ppp/8/8/2Q5/2Q5/5PPP/6K1 w - - 0 1");
+        const SearchResult result = search_to_depth(pos, depth);
+        CHECK(result.score > 1000);
+    }
+}
+
 TEST_CASE("search leaves a reserve on a low clock even with a large increment", "[search]") {
     using namespace std::chrono_literals;
     Position pos;
