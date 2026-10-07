@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <cctype>
+#include <cstddef>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "eval_values.hpp"
 #include "evaluate.hpp"
 #include "test_helpers.hpp"
 
@@ -82,4 +84,76 @@ TEST_CASE("evaluation is from the side to move's point of view", "[evaluate]") {
 TEST_CASE("game phase counts minor and major pieces", "[evaluate]") {
     CHECK(game_phase(test::position_from("4k3/pppppppp/8/8/8/8/PPPPPPPP/4K3 w - - 0 1")) == 0);
     CHECK(game_phase(test::position_from("3qk3/8/8/8/8/8/8/2R1K1N1 w - - 0 1")) == 7);
+}
+
+TEST_CASE("the trace reproduces the evaluation", "[evaluate]") {
+    for (const auto* const fen : {
+             "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+             "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+             "4rrk1/2p1b1p1/p1p3q1/4p3/2P2n1p/1P1NR2P/PB3PP1/3R1QK1 b - - 2 24",
+             "6k1/6p1/6Pp/ppp5/3pn2P/1P3K2/1PP2P2/3N4 b - - 0 1",
+         }) {
+        INFO(fen);
+        const Position pos = test::position_from(fen);
+        const EvalTrace trace = trace_evaluation(pos);
+        int mg = 0;
+        int eg = 0;
+        for (std::size_t i = 0; i < eval::kParamValues.size(); ++i) {
+            mg += trace.coefficients.at(i) * eval::kParamValues.at(i).mg;
+            eg += trace.coefficients.at(i) * eval::kParamValues.at(i).eg;
+        }
+        const int white_score = ((mg * trace.phase) + (eg * (kMaxPhase - trace.phase))) / kMaxPhase;
+        CHECK(trace.phase == game_phase(pos));
+        CHECK(white_score == (pos.side_to_move() == White ? evaluate(pos) : -evaluate(pos)));
+    }
+}
+
+namespace {
+
+int coefficient(std::string_view fen, int index) {
+    return trace_evaluation(test::position_from(fen))
+        .coefficients.at(static_cast<std::size_t>(index));
+}
+
+}  // namespace
+
+TEST_CASE("pawn structure terms", "[evaluate]") {
+    // Doubled and isolated e-pawns: only the front one is passed.
+    const auto* const doubled = "4k3/8/8/8/8/4P3/4P3/4K3 w - - 0 1";
+    CHECK(coefficient(doubled, eval::kDoubledPawn) == 1);
+    CHECK(coefficient(doubled, eval::kIsolatedPawn) == 2);
+    CHECK(coefficient(doubled, eval::kPassedPawn + 2) == 1);
+    CHECK(coefficient(doubled, eval::kPassedPawn + 1) == 0);
+    // The same for Black counts negatively.
+    CHECK(coefficient("4k3/4p3/4p3/8/8/8/8/4K3 w - - 0 1", eval::kDoubledPawn) == -1);
+
+    // e3 cannot be defended by a pawn and its stop square is attacked by d5; d5 is isolated.
+    const auto* const backward = "4k3/8/8/3p4/3P4/4P3/8/4K3 w - - 0 1";
+    CHECK(coefficient(backward, eval::kBackwardPawn) == 1);
+    CHECK(coefficient(backward, eval::kIsolatedPawn) == -1);
+    CHECK(coefficient(backward, eval::kSupportedPawn + 3) == 1);
+    CHECK(coefficient(backward, eval::kPassedPawn + 3) == 0);
+
+    const auto* const phalanx = "4k3/8/8/8/3PP3/8/8/4K3 w - - 0 1";
+    CHECK(coefficient(phalanx, eval::kPhalanxPawn + 3) == 2);
+    CHECK(coefficient(phalanx, eval::kPassedPawn + 3) == 2);
+}
+
+TEST_CASE("piece and king terms", "[evaluate]") {
+    CHECK(coefficient("4k3/8/8/8/8/8/8/2B1KB2 w - - 0 1", eval::kBishopPair) == 1);
+    CHECK(coefficient("4k3/8/8/8/8/8/8/2B1K1N1 w - - 0 1", eval::kBishopPair) == 0);
+
+    // The a-file is open, the h-file half open for White.
+    const auto* const rooks = "4k3/7p/8/8/8/8/8/R3K2R w - - 0 1";
+    CHECK(coefficient(rooks, eval::kRookOpenFile) == 1);
+    CHECK(coefficient(rooks, eval::kRookSemiOpenFile) == 1);
+
+    // A knight in the corner reaches two squares, one of them guarded by a pawn.
+    CHECK(coefficient("4k3/8/8/8/p7/8/8/N3K3 w - - 0 1", eval::kKnightMobility + 1) == 1);
+
+    // The castled king has three shield pawns; the queen attacks two squares around it.
+    const auto* const castled = "6k1/8/8/8/8/8/5PPP/3q2K1 w - - 0 1";
+    CHECK(coefficient(castled, eval::kPawnShield) == 3);
+    CHECK(coefficient(castled, eval::kKingZoneAttack + 3) == -2);
+    CHECK(coefficient(castled, eval::kKingAttackers + 1) == -1);
 }

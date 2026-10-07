@@ -54,8 +54,12 @@ TEST_CASE("search sees being mated", "[search]") {
 TEST_CASE("search captures a hanging piece and avoids losing its own", "[search]") {
     // The black queen on d5 is unprotected.
     CHECK(best_move("4k3/8/8/3q4/8/2N5/8/4K3 w - - 0 1", 3) == "c3d5");
-    // The attacked queen is saved by the pawn capture, not lost to the defended pawn.
-    CHECK(best_move("4k3/8/4n3/2p5/1Q1P4/8/8/4K3 w - - 0 1", 3) == "d4c5");
+    // The attacked queen is saved (by the pawn capture or by moving away), not lost to the
+    // defended pawn.
+    Position pos = test::position_from("4k3/8/4n3/2p5/1Q1P4/8/8/4K3 w - - 0 1");
+    const SearchResult result = search_to_depth(pos, 3);
+    CHECK(result.best_move.to_uci() != "b4c5");
+    CHECK(result.score > 600);
 }
 
 TEST_CASE("a stalemated side has no move and a draw score", "[search]") {

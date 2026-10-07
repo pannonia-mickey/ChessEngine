@@ -129,6 +129,7 @@ def build_commit(commit: str, work_dir: Path, jobs: int | None) -> Path:
                 "cmake", "-S", str(source), "-B", str(build),
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DCHESS_BUILD_TESTS=OFF",
+                "-DCHESS_BUILD_TOOLS=OFF",
                 "-DCHESS_WARNINGS_AS_ERRORS=OFF",
             ]
             if shutil.which("ninja"):

@@ -10,3 +10,6 @@ CMakeUserPresets.json
 # SPRT builds, opening books and match results (tools/sprt.py)
 /.sprt/
 __pycache__/
+
+# Tuning data sets (docs/tuning.md)
+/tuning/
