@@ -50,6 +50,8 @@ struct SearchInfo {
 };
 
 struct SearchResult {
+    // The last completed iteration's best move, or a better root move that an interrupted later
+    // iteration searched to the end; score and depth describe the last completed iteration.
     // The null move when the side to move has no legal move.
     Move best_move;
     Score score = 0;
