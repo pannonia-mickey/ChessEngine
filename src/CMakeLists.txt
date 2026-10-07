@@ -9,6 +9,7 @@ add_library(
   perft.cpp
   position.cpp
   search.cpp
+  see.cpp
   tt.cpp
   uci.cpp)
 add_library(chess::core ALIAS chess_core)

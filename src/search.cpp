@@ -17,6 +17,7 @@
 
 #include "bitboard.hpp"
 #include "movegen.hpp"
+#include "see.hpp"
 
 namespace chess {
 namespace {
@@ -173,10 +174,11 @@ private:
 
 class MovePicker {
 public:
-    // Orders the hash/PV move first, then captures by MVV-LVA (most valuable victim, least
-    // valuable attacker) and queen promotions, then the killer moves, then the other quiet moves
-    // by history score, and underpromotions last. With `tactical_only`, only captures and queen
-    // promotions are returned.
+    // Orders the hash/PV move first, then captures that do not lose material by static exchange
+    // evaluation, by MVV-LVA (most valuable victim, least valuable attacker), and queen
+    // promotions, then the killer moves, then the other quiet moves by history score, then the
+    // losing captures by MVV-LVA, and underpromotions last. With `tactical_only`, only captures and
+    // queen promotions are returned.
     void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
                const History* history, bool tactical_only = false) {
         size_ = 0;
@@ -214,7 +216,8 @@ private:
         constexpr int kTacticalBonus = 100'000;
         constexpr int kFirstKillerBonus = 90'000;
         constexpr int kSecondKillerBonus = 80'000;
-        constexpr int kUnderpromotionScore = -kMaxHistory - 1;
+        constexpr int kLosingCaptureScore = -kTacticalBonus;
+        constexpr int kUnderpromotionScore = -2 * kTacticalBonus;
         if (move == hash_move) {
             return kHashBonus;
         }
@@ -227,7 +230,12 @@ private:
             const PieceType victim =
                 move.type() == MoveType::EnPassant ? Pawn : type_of(pos.piece_on(move.to()));
             const PieceType attacker = type_of(pos.piece_on(move.from()));
-            value += kTacticalBonus + (piece_value(victim) * 8) - static_cast<int>(attacker);
+            const int mvv_lva = (piece_value(victim) * 8) - static_cast<int>(attacker);
+            // A capture that loses material is tried after the quiet moves.
+            if (!see_ge(pos, move, 0)) {
+                return kLosingCaptureScore + mvv_lva;
+            }
+            value += kTacticalBonus + mvv_lva;
         }
         if (move.type() == MoveType::Promotion) {
             value += kTacticalBonus + piece_value(Queen);
@@ -526,6 +534,11 @@ private:
         // scored.
         picker.reset(pos_, data.moves, Move::null(), {}, nullptr, !in_check);
         while (const auto move = picker.next()) {
+            // A capture that loses material by static exchange evaluation is not worth resolving:
+            // standing pat already scores better than it would.
+            if (!in_check && !see_ge(pos_, *move, 0)) {
+                continue;
+            }
             pos_.make_move(*move);
             const Score score = -quiescence(-beta, -alpha, ply + 1);
             pos_.unmake_move();
