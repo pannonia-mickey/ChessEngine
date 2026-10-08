@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <iosfwd>
 #include <mutex>
@@ -27,7 +28,7 @@ public:
     Uci& operator=(Uci&&) = delete;
 
     // Reads commands until "quit" or end of input. At end of input a running search is allowed
-    // to finish, except an infinite one, which is stopped.
+    // to finish, except an infinite or pondering one, which is stopped.
     void loop();
 
     // Handles a single command line. Returns false when the engine should exit.
@@ -36,8 +37,8 @@ public:
     // The position set by the last valid "position" command (moves already played).
     [[nodiscard]] const Position& position() const noexcept { return position_; }
 
-    // Blocks until the running search, if any, has printed its best move. An infinite search
-    // would never end on its own, so it is stopped first.
+    // Blocks until the running search, if any, has printed its best move. An infinite or
+    // pondering search would never end on its own, so it is stopped first.
     void wait();
 
 private:
@@ -64,6 +65,8 @@ private:
     TranspositionTable tt_;
     // Whether the last "go" was "go infinite", which only ends when stopped.
     bool search_infinite_ = false;
+    // Set by "go ponder" and cleared by "ponderhit"; read by the search thread.
+    std::atomic<bool> pondering_ = false;
     // Declared last so it is joined before the members the search thread uses are destroyed.
     std::jthread search_thread_;
 };

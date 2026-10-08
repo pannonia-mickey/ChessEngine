@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -31,6 +32,10 @@ struct SearchLimits {
     std::uint64_t nodes = 0;  // 0 means no node limit.
     // Do not report a best move before being stopped, even when the depth limit is reached.
     bool infinite = false;
+    // Pondering ("go ponder") while this points to true: the clock is ignored and no best move is
+    // reported before a stop. Once it turns false ("ponderhit"), the search goes on as a normal
+    // one on the clock, whose time is measured from then.
+    const std::atomic<bool>* pondering = nullptr;
     // Time kept in reserve per move for communication and process scheduling delays.
     std::chrono::milliseconds move_overhead{30};
     // Time is measured from here; by default, from when the limits were made for "go".

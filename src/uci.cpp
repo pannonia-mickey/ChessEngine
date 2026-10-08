@@ -140,7 +140,7 @@ void Uci::loop() {
 }
 
 void Uci::wait() {
-    if (search_infinite_) {
+    if (search_infinite_ || pondering_) {
         search_thread_.request_stop();
     }
     if (search_thread_.joinable()) {
@@ -170,7 +170,12 @@ bool Uci::handle_command(std::string_view line) {
         stop_search();
         return command != "quit";
     }
-    if (command.empty() || command == "ponderhit") {
+    if (command == "ponderhit") {
+        // The opponent played the expected move: the search goes on, now on the clock.
+        pondering_ = false;
+        return true;
+    }
+    if (command.empty()) {
         return true;
     }
     stop_search();
@@ -203,6 +208,8 @@ void Uci::cmd_uci() {
          std::to_string(TranspositionTable::kMaxSizeMb));
     send("option name Move Overhead type spin default " + std::to_string(kDefaultMoveOverhead) +
          " min 0 max " + std::to_string(kMaxMoveOverhead));
+    // Lets GUIs send "go ponder"; the engine needs no setup for it.
+    send("option name Ponder type check default false");
     send("uciok");
 }
 
@@ -231,6 +238,10 @@ void Uci::cmd_setoption(std::string_view args) {
                 send("info string not enough memory for Hash " + value + ", using " +
                      std::to_string(TranspositionTable::kDefaultSizeMb));
             }
+            return;
+        }
+    } else if (name == "Ponder") {
+        if (value == "true" || value == "false") {
             return;
         }
     } else if (name == "Move Overhead") {
@@ -306,6 +317,10 @@ void Uci::cmd_go(std::string_view args) {
     SearchLimits limits = parse_go(tokens);
     limits.move_overhead = move_overhead_;
     search_infinite_ = limits.infinite;
+    pondering_ = std::ranges::find(tokens, "ponder") != tokens.end();
+    if (pondering_) {
+        limits.pondering = &pondering_;
+    }
     search_thread_ = std::jthread([this, limits, pos = position_](std::stop_token stop) mutable {
         const SearchResult result =
             search(pos, limits, tt_, std::move(stop),
