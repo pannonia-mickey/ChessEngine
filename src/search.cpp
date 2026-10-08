@@ -36,6 +36,9 @@ constexpr std::uint64_t kCheckInterval = 1024;
 constexpr auto kLastPly = static_cast<std::size_t>(kMaxPly - 1);
 // Null move pruning is tried from this remaining depth on.
 constexpr int kNullMoveMinDepth = 3;
+// Reverse futility pruning is tried up to this remaining depth, with this margin per ply of it.
+constexpr int kRfpMaxDepth = 6;
+constexpr Score kRfpMarginPerPly = 80;
 // History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
 constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
@@ -284,8 +287,22 @@ public:
                 // An unfinished iteration still searched some root moves to the end, at a greater
                 // depth than the last finished one; the best of them is played. Its score may
                 // be only a bound, so the score of the finished iteration is kept.
-                if (!root_best_.move.is_null()) {
+                if (!root_best_.move.is_null() && root_best_.move != result.best_move) {
                     result.best_move = root_best_.move;
+                    // Reported too, so the last PV a GUI sees starts with the move played. The
+                    // moves not searched yet might do better: the score is a lower bound.
+                    if (on_info) {
+                        on_info(
+                            {.depth = depth,
+                             .selective_depth = selective_depth_,
+                             .score = root_best_.score,
+                             .lower_bound = true,
+                             .nodes = nodes_,
+                             .elapsed = elapsed(),
+                             .hashfull = tt_.hashfull(),
+                             .pv =
+                                 std::span<const Move>(root_best_.pv).first(root_best_.pv_length)});
+                    }
                 }
                 break;
             }
@@ -393,13 +410,24 @@ private:
         if (ply > 0 && pos_.halfmove_clock() >= 100) {
             return kDrawScore;
         }
+        // Computed once and shared by the pruning decisions below; meaningless in check.
+        const Score static_eval = in_check ? -kInfiniteScore : evaluate(pos_);
+
+        // Reverse futility pruning: a position whose static evaluation beats beta by a margin
+        // that grows with the remaining depth is unlikely to drop below beta in a shallow search,
+        // so it is cut off without one. Skipped in check, in PV nodes, and when a mate is at
+        // stake, which the evaluation cannot judge.
+        if (!pv_node && !in_check && depth <= kRfpMaxDepth && !is_mate_score(beta) &&
+            static_eval - (kRfpMarginPerPly * depth) >= beta) {
+            return static_eval;
+        }
 
         // Null move pruning: if passing the turn still fails high in a reduced search, a real
         // move almost surely would too. Skipped in check, in PV nodes, and without pieces
         // (zugzwang).
         if (!pv_node && !after_null && !in_check && depth >= kNullMoveMinDepth &&
             beta < kMateBound && has_non_pawn_material(pos_, pos_.side_to_move()) &&
-            evaluate(pos_) >= beta) {
+            static_eval >= beta) {
             const int reduction = 3 + (depth / 4);
             pos_.make_null_move();
             const Score score =
@@ -479,7 +507,10 @@ private:
                     best_move = *move;
                     update_pv(ply, *move);
                     if (ply == 0 && score > root_best_.score) {
-                        root_best_ = {.move = *move, .score = score};
+                        root_best_ = {.move = *move,
+                                      .score = score,
+                                      .pv = pv_[0],
+                                      .pv_length = pv_length_[0]};
                     }
                     if (alpha >= beta) {
                         if (quiet) {
@@ -649,6 +680,8 @@ private:
     struct RootMove {
         Move move = Move::null();
         Score score = -kInfiniteScore;
+        std::array<Move, kMaxPly + 1> pv{};
+        std::size_t pv_length = 0;
     };
     RootMove root_best_;
 

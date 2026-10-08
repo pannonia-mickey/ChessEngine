@@ -37,11 +37,14 @@ struct SearchLimits {
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 };
 
-// Progress of the search after each completed iteration.
+// Progress of the search after each completed iteration, and after an interrupted one whose best
+// move is played instead.
 struct SearchInfo {
     int depth = 0;
     int selective_depth = 0;
     Score score = 0;
+    // The true score may be higher: reported for an interrupted iteration.
+    bool lower_bound = false;
     std::uint64_t nodes = 0;
     std::chrono::milliseconds elapsed{0};
     // Permille of the transposition table filled by this search.
