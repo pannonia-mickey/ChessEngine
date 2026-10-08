@@ -191,7 +191,8 @@ public:
                 continue;
             }
             moves_[size_] = move;
-            scores_[size_] = score(pos, move, hash_move, killers, history);
+            see_[size_] = SeeResult::Unknown;
+            scores_[size_] = score(pos, move, hash_move, killers, history, see_[size_]);
             ++size_;
         }
     }
@@ -209,12 +210,25 @@ public:
         }
         std::swap(moves_[current_], moves_[best]);
         std::swap(scores_[current_], scores_[best]);
+        std::swap(see_[current_], see_[best]);
         return moves_[current_++];
     }
 
+    // see_ge(pos, move, 0) for the move next() returned last, reusing the result from scoring it
+    // when there is one.
+    [[nodiscard]] bool last_see_ge_zero(const Position& pos) {
+        SeeResult& see = see_[current_ - 1];
+        if (see == SeeResult::Unknown) {
+            see = see_ge(pos, moves_[current_ - 1], 0) ? SeeResult::Good : SeeResult::Bad;
+        }
+        return see == SeeResult::Good;
+    }
+
 private:
+    enum class SeeResult : std::uint8_t { Unknown, Good, Bad };
+
     static int score(const Position& pos, Move move, Move hash_move, const Killers& killers,
-                     const History* history) {
+                     const History* history, SeeResult& see) {
         constexpr int kHashBonus = 1'000'000;
         constexpr int kTacticalBonus = 100'000;
         constexpr int kFirstKillerBonus = 90'000;
@@ -235,7 +249,8 @@ private:
             const PieceType attacker = type_of(pos.piece_on(move.from()));
             const int mvv_lva = (piece_value(victim) * 8) - static_cast<int>(attacker);
             // A capture that loses material is tried after the quiet moves.
-            if (!see_ge(pos, move, 0)) {
+            see = see_ge(pos, move, 0) ? SeeResult::Good : SeeResult::Bad;
+            if (see == SeeResult::Bad) {
                 return kLosingCaptureScore + mvv_lva;
             }
             value += kTacticalBonus + mvv_lva;
@@ -257,6 +272,7 @@ private:
 
     std::array<Move, MoveList::kCapacity> moves_{};
     std::array<int, MoveList::kCapacity> scores_{};
+    std::array<SeeResult, MoveList::kCapacity> see_{};
     std::size_t size_ = 0;
     std::size_t current_ = 0;
 };
@@ -577,7 +593,7 @@ private:
         while (const auto move = picker.next()) {
             // A capture that loses material by static exchange evaluation is not worth resolving:
             // standing pat already scores better than it would.
-            if (!in_check && !see_ge(pos_, *move, 0)) {
+            if (!in_check && !picker.last_see_ge_zero(pos_)) {
                 continue;
             }
             pos_.make_move(*move);
