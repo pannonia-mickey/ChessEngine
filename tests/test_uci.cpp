@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include "uci.hpp"
 
@@ -58,6 +60,24 @@ TEST_CASE_METHOD(UciFixture, "go infinite waits for stop and isready is answered
     CHECK(out.str().find("\nbestmove ") != std::string::npos);
 }
 
+TEST_CASE_METHOD(UciFixture, "go ponder waits for ponderhit, then plays on the clock", "[uci]") {
+    using namespace std::chrono_literals;
+    uci.handle_command("go ponder wtime 1000 btime 1000");
+    // A search on this clock would have answered long before.
+    std::this_thread::sleep_for(1200ms);
+    REQUIRE(uci.handle_command("isready"));
+    CHECK(out.str().find("bestmove") == std::string::npos);
+    REQUIRE(uci.handle_command("ponderhit"));
+    uci.wait();
+    CHECK(out.str().find("\nbestmove ") != std::string::npos);
+}
+
+TEST_CASE_METHOD(UciFixture, "stop ends pondering with a best move", "[uci]") {
+    uci.handle_command("go ponder wtime 1000 btime 1000");
+    REQUIRE(uci.handle_command("stop"));
+    CHECK(out.str().find("\nbestmove ") != std::string::npos);
+}
+
 TEST_CASE("an infinite search is stopped at the end of input", "[uci]") {
     std::istringstream in("go infinite\n");
     std::ostringstream out;
@@ -76,6 +96,7 @@ TEST_CASE_METHOD(UciFixture, "the Hash option resizes the transposition table", 
     uci.handle_command("uci");
     CHECK(out.str().find("option name Hash type spin default 16 min 1 max 65536\n") !=
           std::string::npos);
+    CHECK(out.str().find("option name Ponder type check default false\n") != std::string::npos);
     out.str("");
     uci.handle_command("setoption name Hash value 2");
     uci.handle_command("ucinewgame");

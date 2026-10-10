@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdint>
@@ -210,6 +211,54 @@ TEST_CASE("search leaves a reserve on a low clock even with a large increment", 
     CHECK_FALSE(result.best_move.is_null());
     // At most 75% of the 370 ms left after the move overhead, plus some slack for polling.
     CHECK(elapsed < 340ms);
+}
+
+TEST_CASE("a pondering search ignores the clock until ponderhit", "[search]") {
+    using namespace std::chrono_literals;
+    // On the clock, at most 75% of the 970 ms left after the move overhead would be spent.
+    for (const int depth : {1, kMaxPly - 1}) {
+        CAPTURE(depth);
+        Position pos;
+        SearchLimits limits;
+        limits.depth = depth;
+        limits.time[White] = 1000ms;
+        std::atomic<bool> pondering = true;
+        limits.pondering = &pondering;
+        TranspositionTable tt(1);
+        std::atomic<bool> done = false;
+        SearchResult result;
+        std::jthread thread([&] {
+            result = search(pos, limits, tt);
+            done = true;
+        });
+        std::this_thread::sleep_for(1200ms);
+        // Still running, whether or not it has reached the depth limit.
+        CHECK_FALSE(done);
+        const auto ponderhit = std::chrono::steady_clock::now();
+        pondering = false;
+        thread.join();
+        // The clock starts at the ponderhit.
+        CHECK(std::chrono::steady_clock::now() - ponderhit < 900ms);
+        CHECK_FALSE(result.best_move.is_null());
+    }
+}
+
+TEST_CASE("a stop ends a pondering search", "[search]") {
+    using namespace std::chrono_literals;
+    Position pos;
+    SearchLimits limits;
+    limits.time[White] = 1000ms;
+    std::atomic<bool> pondering = true;
+    limits.pondering = &pondering;
+    TranspositionTable tt(1);
+    std::stop_source source;
+    SearchResult result;
+    std::jthread thread([&] { result = search(pos, limits, tt, source.get_token()); });
+    std::this_thread::sleep_for(100ms);
+    source.request_stop();
+    thread.join();
+    CHECK(pondering);
+    CHECK_FALSE(result.best_move.is_null());
 }
 
 TEST_CASE("a search on the clock stops once it has found a mate", "[search]") {

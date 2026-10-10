@@ -191,7 +191,8 @@ public:
                 continue;
             }
             moves_[size_] = move;
-            scores_[size_] = score(pos, move, hash_move, killers, history);
+            see_[size_] = SeeResult::Unknown;
+            scores_[size_] = score(pos, move, hash_move, killers, history, see_[size_]);
             ++size_;
         }
     }
@@ -209,12 +210,25 @@ public:
         }
         std::swap(moves_[current_], moves_[best]);
         std::swap(scores_[current_], scores_[best]);
+        std::swap(see_[current_], see_[best]);
         return moves_[current_++];
     }
 
+    // see_ge(pos, move, 0) for the move next() returned last, reusing the result from scoring it
+    // when there is one.
+    [[nodiscard]] bool last_see_ge_zero(const Position& pos) {
+        SeeResult& see = see_[current_ - 1];
+        if (see == SeeResult::Unknown) {
+            see = see_ge(pos, moves_[current_ - 1], 0) ? SeeResult::Good : SeeResult::Bad;
+        }
+        return see == SeeResult::Good;
+    }
+
 private:
+    enum class SeeResult : std::uint8_t { Unknown, Good, Bad };
+
     static int score(const Position& pos, Move move, Move hash_move, const Killers& killers,
-                     const History* history) {
+                     const History* history, SeeResult& see) {
         constexpr int kHashBonus = 1'000'000;
         constexpr int kTacticalBonus = 100'000;
         constexpr int kFirstKillerBonus = 90'000;
@@ -235,7 +249,8 @@ private:
             const PieceType attacker = type_of(pos.piece_on(move.from()));
             const int mvv_lva = (piece_value(victim) * 8) - static_cast<int>(attacker);
             // A capture that loses material is tried after the quiet moves.
-            if (!see_ge(pos, move, 0)) {
+            see = see_ge(pos, move, 0) ? SeeResult::Good : SeeResult::Bad;
+            if (see == SeeResult::Bad) {
                 return kLosingCaptureScore + mvv_lva;
             }
             value += kTacticalBonus + mvv_lva;
@@ -257,6 +272,7 @@ private:
 
     std::array<Move, MoveList::kCapacity> moves_{};
     std::array<int, MoveList::kCapacity> scores_{};
+    std::array<SeeResult, MoveList::kCapacity> see_{};
     std::size_t size_ = 0;
     std::size_t current_ = 0;
 };
@@ -270,7 +286,9 @@ public:
           tt_(tt),
           stop_(std::move(stop)),
           start_(limits.start),
-          budget_(plan_time(limits, pos.side_to_move())) {}
+          budget_start_(limits.start),
+          budget_(plan_time(limits, pos.side_to_move())),
+          pondering_(limits.pondering != nullptr && limits.pondering->load()) {}
 
     SearchResult run(const InfoCallback& on_info) {
         SearchResult result;
@@ -323,15 +341,19 @@ public:
             }
             // From here on the search may be interrupted: a move is known.
             can_abort_ = true;
-            if (result.best_move.is_null() || stop_.stop_requested() ||
-                (budget_.soft.has_value() &&
-                 (elapsed() >= *budget_.soft || mate_found(score, depth)))) {
+            if (result.best_move.is_null() || stop_.stop_requested()) {
+                break;
+            }
+            if (!pondering() && budget_.soft.has_value() &&
+                (budget_elapsed() >= *budget_.soft || mate_found(score, depth))) {
                 break;
             }
         }
         result.nodes = nodes_;
         if (limits_.infinite) {
             wait_for_stop();
+        } else if (pondering()) {
+            wait_for_stop_or_ponderhit();
         }
         return result;
     }
@@ -577,7 +599,7 @@ private:
         while (const auto move = picker.next()) {
             // A capture that loses material by static exchange evaluation is not worth resolving:
             // standing pat already scores better than it would.
-            if (!in_check && !see_ge(pos_, *move, 0)) {
+            if (!in_check && !picker.last_see_ge_zero(pos_)) {
                 continue;
             }
             pos_.make_move(*move);
@@ -643,14 +665,29 @@ private:
         if (limits_.nodes != 0 && nodes_ >= limits_.nodes) {
             aborted_ = true;
         } else if (nodes_ % kCheckInterval == 0) {
-            aborted_ =
-                stop_.stop_requested() || (budget_.hard.has_value() && elapsed() >= *budget_.hard);
+            aborted_ = stop_.stop_requested() || (!pondering() && budget_.hard.has_value() &&
+                                                  budget_elapsed() >= *budget_.hard);
         }
         return aborted_;
     }
 
     [[nodiscard]] milliseconds elapsed() const {
         return std::chrono::duration_cast<milliseconds>(Clock::now() - start_);
+    }
+
+    // Time spent since the clock started running for this move: since "go", or since
+    // "ponderhit" for a search that started pondering.
+    [[nodiscard]] milliseconds budget_elapsed() const {
+        return std::chrono::duration_cast<milliseconds>(Clock::now() - budget_start_);
+    }
+
+    // Whether the search is still pondering. Notices a ponderhit and starts the clock then.
+    bool pondering() {
+        if (pondering_ && !limits_.pondering->load()) {
+            pondering_ = false;
+            budget_start_ = Clock::now();
+        }
+        return pondering_;
     }
 
     void wait_for_stop() {
@@ -660,12 +697,25 @@ private:
         stopped.wait(lock, stop_, [] { return false; });
     }
 
+    // A ponderhit only flips an atomic flag, which cannot wake a condition variable, so it is
+    // polled every millisecond; a stop request wakes the wait at once.
+    void wait_for_stop_or_ponderhit() {
+        std::mutex mutex;
+        std::condition_variable_any stopped;
+        std::unique_lock lock(mutex);
+        while (!stop_.stop_requested() && pondering()) {
+            stopped.wait_for(lock, stop_, 1ms, [] { return false; });
+        }
+    }
+
     Position& pos_;
     const SearchLimits& limits_;
     TranspositionTable& tt_;
     std::stop_token stop_;
     Clock::time_point start_;
+    Clock::time_point budget_start_;
     TimeBudget budget_;
+    bool pondering_;
 
     std::uint64_t nodes_ = 0;
     int selective_depth_ = 0;
