@@ -463,9 +463,12 @@ private:
             const bool child_on_pv = on_pv && *move == pv_move;
             pos_.make_move(*move);
             const bool gives_check = pos_.in_check();
+            // Check extension: a checking move is searched a ply deeper, so that the forcing
+            // line it starts is not cut short at the horizon.
+            const int new_depth = depth - 1 + (gives_check ? 1 : 0);
             Score score = 0;
             if (moves_searched == 0) {
-                score = -negamax(depth - 1, -beta, -alpha, ply + 1, child_on_pv, false);
+                score = -negamax(new_depth, -beta, -alpha, ply + 1, child_on_pv, false);
             } else {
                 // Principal variation search: with good ordering the first move is the best, so
                 // the others only need proving worse, which a null window around alpha does more
@@ -489,9 +492,9 @@ private:
                     }
                 }
                 if (full_depth) {
-                    score = -negamax(depth - 1, -alpha - 1, -alpha, ply + 1, false, false);
+                    score = -negamax(new_depth, -alpha - 1, -alpha, ply + 1, false, false);
                     if (score > alpha && score < beta && !aborted_) {
-                        score = -negamax(depth - 1, -beta, -alpha, ply + 1, child_on_pv, false);
+                        score = -negamax(new_depth, -beta, -alpha, ply + 1, child_on_pv, false);
                     }
                 }
             }
