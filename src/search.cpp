@@ -461,11 +461,15 @@ private:
             const bool quiet = is_quiet(pos_, *move);
             const bool killer = *move == killers_[ply][0] || *move == killers_[ply][1];
             const bool child_on_pv = on_pv && *move == pv_move;
+            // Whether the move keeps material by static exchange evaluation; only checks that do
+            // are extended.
+            const bool safe = see_ge(pos_, *move, 0);
             pos_.make_move(*move);
             const bool gives_check = pos_.in_check();
-            // Check extension: a checking move is searched a ply deeper, so that the forcing
-            // line it starts is not cut short at the horizon.
-            const int new_depth = depth - 1 + (gives_check ? 1 : 0);
+            // Check extension: a checking move that does not lose material is searched a ply
+            // deeper, so that the forcing line it starts is not cut short at the horizon. A check
+            // that just gives material away rarely leads anywhere and is not worth the nodes.
+            const int new_depth = depth - 1 + (gives_check && safe ? 1 : 0);
             Score score = 0;
             if (moves_searched == 0) {
                 score = -negamax(new_depth, -beta, -alpha, ply + 1, child_on_pv, false);
