@@ -39,6 +39,15 @@ constexpr int kNullMoveMinDepth = 3;
 // Reverse futility pruning is tried up to this remaining depth, with this margin per ply of it.
 constexpr int kRfpMaxDepth = 6;
 constexpr Score kRfpMarginPerPly = 80;
+// Late move pruning: up to this remaining depth, quiet moves after kLmpBaseMoves + depth * depth
+// searched ones are skipped.
+constexpr int kLmpMaxDepth = 8;
+constexpr int kLmpBaseMoves = 3;
+// Futility pruning: up to this remaining depth, quiet moves are skipped when the static evaluation
+// plus kFutilityBase plus kFutilityMarginPerPly per ply of depth does not reach alpha.
+constexpr int kFutilityMaxDepth = 6;
+constexpr Score kFutilityBase = 100;
+constexpr Score kFutilityMarginPerPly = 100;
 // History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
 constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
@@ -479,10 +488,29 @@ private:
         MoveList& quiets_tried = data.quiets_tried;
         quiets_tried.clear();
         int moves_searched = 0;
+        // Quiet moves are pruned below only in non-PV nodes out of check, and only once a move
+        // was searched without being mated, so no node is left without a move and no defense
+        // against a mate is skipped. Futility pruning is also skipped when alpha is a mate score,
+        // which the static evaluation cannot judge.
+        const bool can_prune_quiets = !pv_node && !in_check;
+        const bool futile = depth <= kFutilityMaxDepth && !is_mate_score(alpha) &&
+                            static_eval + kFutilityBase + (kFutilityMarginPerPly * depth) <= alpha;
         while (const auto move = picker.next()) {
             const bool quiet = is_quiet(pos_, *move);
             const bool killer = *move == killers_[ply][0] || *move == killers_[ply][1];
             const bool child_on_pv = on_pv && *move == pv_move;
+            if (can_prune_quiets && quiet && moves_searched > 0 && best > -kMateBound) {
+                // Late move pruning: with good ordering, a quiet move this late at a shallow
+                // depth almost never beats the moves before it.
+                if (depth <= kLmpMaxDepth && moves_searched >= kLmpBaseMoves + (depth * depth)) {
+                    continue;
+                }
+                // Futility pruning: a quiet move rarely gains enough to lift a position this far
+                // below alpha above it in a shallow search.
+                if (futile) {
+                    continue;
+                }
+            }
             pos_.make_move(*move);
             const bool gives_check = pos_.in_check();
             Score score = 0;
