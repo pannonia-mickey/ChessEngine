@@ -21,6 +21,8 @@ SPRT (see [sprt.md](sprt.md)). Ideas tried and rejected are recorded in
 | 11 | Lazy SMP (multiple threads) | +50–100 on several cores | large | `src/search.cpp`, `src/tt.*`, `src/uci.cpp` |
 | 12 | NNUE evaluation | +150–300 | very large | new module and training pipeline |
 
+Item 5 is implemented (see its section below) and awaits an SPRT result.
+
 Check extensions were ranked first but lost Elo in both forms tested (#20); see
 [experiments.md](experiments.md#check-extensions-20-closed).
 
@@ -63,6 +65,10 @@ Quiet moves are ordered by killers and a butterfly history (`[color][from][to]`)
 - **capture history** next to MVV-LVA.
 
 Then adjust the LMR amount by the history score (less reduction for well-scored moves).
+
+**Status:** implemented. `MovePicker` and the tables moved to `src/movepick.*` and
+`src/history.hpp`; the LMR amount shrinks by one ply per 8192 of combined quiet history. Bench
+58516 → 60229. Not yet SPRT-tested.
 
 ### 6. Transposition table
 

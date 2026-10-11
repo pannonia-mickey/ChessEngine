@@ -6,6 +6,7 @@ add_library(
   magic.cpp
   move.cpp
   movegen.cpp
+  movepick.cpp
   perft.cpp
   position.cpp
   search.cpp
