@@ -30,6 +30,10 @@ using namespace std::chrono_literals;
 constexpr int kDefaultMovesToGo = 30;
 // At most this share of the clock left after the move overhead is spent on one move.
 constexpr int kMaxClockUsagePercent = 75;
+// On the clock, no new iteration starts after this share of the time planned for the move. An
+// iteration started later would likely be cut short by the hard limit, and it is the overshoot of
+// such iterations that drained the clock to a few increments in fast games.
+constexpr int kIterationStartPercent = 50;
 // How often (in nodes) the clock and the stop request are polled.
 constexpr std::uint64_t kCheckInterval = 1024;
 // The deepest ply a node can be at; evaluated statically, never expanded.
@@ -82,10 +86,10 @@ TimeBudget plan_time(const SearchLimits& limits, Color us) {
                                                    : kDefaultMovesToGo;
     // Never plan to use the whole clock: a late reply on a busy machine would lose on time.
     const milliseconds max_usage = std::max(available * kMaxClockUsagePercent / 100, 1ms);
-    const milliseconds soft =
+    const milliseconds planned =
         std::min(available / moves_to_go + limits.increment[us] * 3 / 4, max_usage);
-    const milliseconds hard = std::min(soft * 3, max_usage);
-    return {.soft = soft, .hard = hard};
+    const milliseconds hard = std::min(planned * 3, max_usage);
+    return {.soft = std::max(planned * kIterationStartPercent / 100, 1ms), .hard = hard};
 }
 
 // Kings alone, or a king and a single minor piece against a bare king: no mate is possible.
