@@ -60,6 +60,7 @@ cmake --preset tidy && cmake --build --preset tidy
 | `CHESS_WARNINGS_AS_ERRORS` | `ON` | Treat compiler (and clang-tidy) warnings as errors |
 | `CHESS_ENABLE_SANITIZERS` | `OFF` | Build with ASan + UBSan |
 | `CHESS_ENABLE_CLANG_TIDY` | `OFF` | Run clang-tidy while compiling |
+| `CHESS_BUILD_FASTCHESS` | `OFF` | Download and build the [fastchess](https://github.com/Disservin/fastchess) match runner for SPRT tests (see [docs/sprt.md](docs/sprt.md)) |
 
 ## Usage
 

@@ -204,9 +204,15 @@ def find_runner(requested: str, runner_path: str | None) -> tuple[str, str]:
             exe = shutil.which(name)
             if exe:
                 return kind, exe
+        if kind == "fastchess":
+            # Built by CMake with -DCHESS_BUILD_FASTCHESS=ON (see docs/sprt.md).
+            built = sorted(REPO_ROOT.glob("build/*/tools/fastchess/bin/fastchess"))
+            if built:
+                return kind, str(built[0])
     fail(
         "no match runner (fastchess or cutechess-cli) found; install fastchess (https://github.com/Disservin/fastchess) "
-        "or cutechess-cli, put it on PATH or pass --runner-path"
+        "or cutechess-cli, put it on PATH or pass --runner-path, or configure CMake with "
+        "-DCHESS_BUILD_FASTCHESS=ON"
     )
     raise AssertionError  # unreachable
 
