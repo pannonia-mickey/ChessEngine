@@ -1,0 +1,118 @@
+# Roadmap
+
+Improvement ideas from a code review of `main` after reverse futility pruning (b4136d5), ranked by
+expected strength gain against effort. The Elo figures are rough expectations from engines of
+similar strength with a hand-written evaluation, not measurements: every change still goes through
+SPRT (see [sprt.md](sprt.md)). Ideas tried and rejected are recorded in
+[experiments.md](experiments.md).
+
+| # | Idea | Expected Elo | Effort | Files |
+|---|---|---|---|---|
+| 1 | Late move pruning and futility pruning of quiet moves | +30–60 | small | `src/search.cpp` |
+| 2 | "Improving" flag (tunes RFP, LMP and LMR) | +10–25 | small | `src/search.cpp` |
+| 3 | SEE pruning in the main search (losing captures, quiet moves) | +10–25 | small | `src/search.cpp`, `src/see.cpp` |
+| 4 | Internal iterative reduction | +5–15 | very small | `src/search.cpp` |
+| 5 | Countermove and continuation history, history-based LMR | +30–60 | medium | `src/search.cpp` |
+| 6 | Transposition table in quiescence, static eval in the table, buckets | +15–35 | medium | `src/tt.hpp`, `src/tt.cpp`, `src/search.cpp` |
+| 7 | Time management by best-move stability and score drops | +10–30 | small–medium | `src/search.cpp` |
+| 8 | Speed: capture-only generation in quiescence, one evaluation per node | +5–15 | medium | `src/movegen.cpp`, `src/search.cpp` |
+| 9 | Evaluation: tempo, threats by pieces, safe checks, endgame scaling | +10–40 | medium | `src/evaluate.cpp`, `src/eval_params.hpp` |
+| 10 | Singular extensions | +15–40 | medium–large | `src/search.cpp`, `src/tt.*` |
+| 11 | Lazy SMP (multiple threads) | +50–100 on several cores | large | `src/search.cpp`, `src/tt.*`, `src/uci.cpp` |
+| 12 | NNUE evaluation | +150–300 | very large | new module and training pipeline |
+
+Check extensions were ranked first but lost Elo in both forms tested (#20); see
+[experiments.md](experiments.md#check-extensions-20-closed).
+
+## Details
+
+### 1. Late move pruning and futility pruning
+
+Every quiet move is searched today; late move reductions only make the search shallower.
+
+- **Late move pruning:** at shallow depth (for example `depth <= 8`) in a non-PV node not in check,
+  once about `3 + depth * depth` moves were searched (more when improving), the remaining quiet
+  moves are skipped.
+- **Futility pruning:** at shallow depth, when `static_eval + 100 + 100 * depth <= alpha`, quiet
+  moves are skipped.
+
+Both use the `static_eval` that `negamax` already computes for reverse futility pruning.
+
+### 2. Improving
+
+Keep the static evaluation per ply in `PlyData`, and set
+`improving = static_eval > stack[ply - 2].static_eval`. The RFP margin, the LMP move count and the
+LMR amount can then depend on it. Items 1 and 3 build on it.
+
+### 3. SEE pruning in the main search
+
+At shallow depth, skip captures with `!see_ge(pos, move, -100 * depth)` and quiet moves with
+`!see_ge(pos, move, -30 * depth * depth)`. The move picker's cached SEE results can be reused.
+
+### 4. Internal iterative reduction
+
+Without a transposition table move at `depth >= 4`, search one ply shallower. Two lines, usually a
+gain.
+
+### 5. Richer move ordering
+
+Quiet moves are ordered by killers and a butterfly history (`[color][from][to]`) only. Add:
+
+- a **countermove** table: the move that refuted the previous move;
+- **continuation history** `[previous piece][previous to][piece][to]`, one and two plies back;
+- **capture history** next to MVV-LVA.
+
+Then adjust the LMR amount by the history score (less reduction for well-scored moves).
+
+### 6. Transposition table
+
+- Quiescence search neither probes nor stores the table.
+- The 16-byte slot stores no static evaluation, so every node evaluates again; an `int16_t` eval
+  field saves calls and lets a table bound refine `static_eval`.
+- One entry per index: three or four entries per cache line, replaced by depth and age, lose fewer
+  useful entries in long searches.
+
+### 7. Time management
+
+`plan_time` is static (`available / 30 + increment * 3 / 4`). Scale the soft limit down when the
+best move stays the same over several iterations and up when it changes or the score drops, and do
+not start an iteration past about half of the soft limit, since it would not finish.
+
+### 8. Speed
+
+- Quiescence generates every legal move and lets the picker drop the quiet ones; a generator for
+  captures and promotions only is faster.
+- `negamax` evaluates for its pruning decisions and the depth-0 child evaluates again in
+  quiescence; item 6's stored evaluation helps here too.
+- A pawn hash table for the pawn structure and pawn shield terms.
+
+Speedups that change the tree go through a non-regression test (`--test simplification`).
+
+### 9. Evaluation
+
+New terms are cheap to add and tune (see [tuning.md](tuning.md)). Missing terms that usually help:
+a tempo bonus, threats by minor and major pieces (only pawn threats exist), safe checks and a
+non-linear king attack score, outposts, and endgame scaling (opposite-colored bishops, little
+material without pawns).
+
+### 10. Singular extensions
+
+Extend the table move when a reduced search excluding it fails low by a margin. Needs an excluded
+move in `negamax` and reliable table depths; worth it once items 1–6 are in.
+
+### 11. Lazy SMP
+
+There is no `Threads` option and the table is not thread-safe. Single-threaded SPRT shows nothing,
+but real games on several cores gain a lot. Needs lock-free (XOR-checked or atomic) table entries,
+one `Searcher` per thread and a shared stop.
+
+### 12. NNUE
+
+The largest long-term gain, but needs data generation and training. Worth it once search
+improvements level off.
+
+## Code quality
+
+- `src/search.cpp` holds move ordering, history and the search in one file; moving `MovePicker` and
+  the history tables to their own files before item 5 keeps it readable.
+- With more pruning constants, exposing them as hidden UCI options would allow SPSA tuning.

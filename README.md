@@ -101,7 +101,7 @@ tools/sprt.py --test simplification     # non-regression bounds [-5, 0]
 tools/sprt.py --tc ltc                  # 40+0.4
 ```
 
-The result summary goes into the pull request description. See [docs/sprt.md](docs/sprt.md) for the bounds, time controls, opening book, the `bench` specification and the rules for recording results.
+The result summary goes into the pull request description. See [docs/sprt.md](docs/sprt.md) for the bounds, time controls, opening book, the `bench` specification and the rules for recording results. Planned improvements are listed in [docs/roadmap.md](docs/roadmap.md), and rejected ones with their results in [docs/experiments.md](docs/experiments.md).
 
 ## Development
 
@@ -114,6 +114,6 @@ The result summary goes into the pull request description. See [docs/sprt.md](do
 src/        engine sources (chess_core library + chessengine executable)
 tests/      Catch2 unit tests
 cmake/      CMake helper modules
-docs/       development documentation (SPRT workflow)
+docs/       development documentation (SPRT workflow, tuning, roadmap, experiments)
 tools/      development scripts (sprt.py)
 ```
