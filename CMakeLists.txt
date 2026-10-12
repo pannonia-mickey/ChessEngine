@@ -15,6 +15,7 @@ option(CHESS_BUILD_TOOLS "Build the developer tools (the Texel tuner)" ON)
 option(CHESS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(CHESS_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(CHESS_ENABLE_CLANG_TIDY "Run clang-tidy on project sources while compiling" OFF)
+option(CHESS_BUILD_FASTCHESS "Download and build the fastchess match runner for SPRT tests" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +33,10 @@ add_subdirectory(src)
 
 if(CHESS_BUILD_TOOLS)
   add_subdirectory(tools/tuner)
+endif()
+
+if(CHESS_BUILD_FASTCHESS)
+  add_subdirectory(tools/fastchess)
 endif()
 
 if(CHESS_BUILD_TESTS)

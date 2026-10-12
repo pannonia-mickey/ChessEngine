@@ -17,7 +17,7 @@ Board representation, fully legal move generation, an alpha-beta search with the
 - FEN parsing and output, make/unmake with an undo stack, castling, en passant, promotions, incremental Zobrist hashing.
 - Legal move generation using check and pin masks; en passant is verified by testing the resulting position.
 - Search: negamax alpha-beta with iterative deepening and principal variation search, quiescence search on captures and queen promotions (all evasions when in check), a transposition table, null move pruning, reverse futility pruning, late move pruning, futility pruning and late move reductions.
-- Move ordering: the previous iteration's principal variation or the transposition table's move first, then captures by MVV-LVA and queen promotions, killer moves, quiet moves by history score, and underpromotions last.
+- Move ordering: the previous iteration's principal variation or the transposition table's move first, then captures by MVV-LVA and capture history and queen promotions, killer moves, the counter move, quiet moves by butterfly and continuation history (one and two plies back), losing captures, and underpromotions last. Late move reductions shrink for quiet moves with a good history score.
 - Draws: the fifty-move rule, insufficient material and repetitions. A position repeated inside the search counts as a draw at once; one repeated from the game before the search only on its third occurrence.
 - Evaluation, tapered between middlegame and endgame by game phase: material and piece-square tables, mobility, pawn structure (passed, doubled, isolated, backward, phalanx and supported pawns), passed pawn king distances, bishop pair, rooks on open files, pawn threats and king safety (king zone attacks, pawn shield, open files at the king). The parameters are tuned with the Texel method by `tools/tuner` (see [docs/tuning.md](docs/tuning.md)), starting from PeSTO's material and piece-square tables.
 - Time management for `wtime`/`btime`/`winc`/`binc`/`movestogo`, `movetime`, `depth`, `nodes` and `infinite`; a search on the clock also stops once it has proven a mate. The search runs on its own thread, so `stop` and `isready` are answered while it thinks.
@@ -60,6 +60,7 @@ cmake --preset tidy && cmake --build --preset tidy
 | `CHESS_WARNINGS_AS_ERRORS` | `ON` | Treat compiler (and clang-tidy) warnings as errors |
 | `CHESS_ENABLE_SANITIZERS` | `OFF` | Build with ASan + UBSan |
 | `CHESS_ENABLE_CLANG_TIDY` | `OFF` | Run clang-tidy while compiling |
+| `CHESS_BUILD_FASTCHESS` | `OFF` | Download and build the [fastchess](https://github.com/Disservin/fastchess) match runner for SPRT tests (see [docs/sprt.md](docs/sprt.md)) |
 
 ## Usage
 

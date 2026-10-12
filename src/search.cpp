@@ -7,7 +7,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -16,8 +15,9 @@
 #include <utility>
 
 #include "bitboard.hpp"
+#include "history.hpp"
 #include "movegen.hpp"
-#include "see.hpp"
+#include "movepick.hpp"
 
 namespace chess {
 namespace {
@@ -48,11 +48,12 @@ constexpr int kLmpBaseMoves = 3;
 constexpr int kFutilityMaxDepth = 6;
 constexpr Score kFutilityBase = 100;
 constexpr Score kFutilityMarginPerPly = 100;
-// History scores stay within [-kMaxHistory, kMaxHistory], below the killer move scores.
-constexpr int kMaxHistory = 16'384;
 // Late move reductions apply from this remaining depth on, to moves after this many searched ones.
 constexpr int kLmrMinDepth = 3;
 constexpr int kLmrMinMoves = 3;
+// A quiet move's reduction shrinks by one ply per this much combined history score, and grows by
+// one per this much below zero.
+constexpr int kLmrHistoryDivisor = 8'192;
 // Aspiration windows are used from this depth on, starting this wide on each side of the previous
 // iteration's score.
 constexpr int kAspirationMinDepth = 5;
@@ -102,21 +103,6 @@ bool has_non_pawn_material(const Position& pos, Color color) {
     return (pos.pieces(color) & ~(pos.pieces(Pawn) | pos.pieces(King))) != 0;
 }
 
-bool is_capture(const Position& pos, Move move) {
-    return move.type() == MoveType::EnPassant || pos.piece_on(move.to()) != NoPiece;
-}
-
-// Neither a capture nor a promotion: the moves ordered by killers and history.
-bool is_quiet(const Position& pos, Move move) {
-    return !is_capture(pos, move) && move.type() != MoveType::Promotion;
-}
-
-// Captures and queen promotions: the moves quiescence search looks at.
-bool is_tactical(const Position& pos, Move move) {
-    return is_capture(pos, move) ||
-           (move.type() == MoveType::Promotion && move.promotion() == Queen);
-}
-
 // How many plies late move reductions take off a quiet move, by remaining depth and by how many
 // moves were searched before it. Grows with the logarithm of both: the later a move comes in a
 // well ordered list and the deeper the search, the less likely the move is to matter.
@@ -161,130 +147,6 @@ Score score_from_tt(Score score, std::size_t ply) {
     }
     return score;
 }
-
-// The two most recent quiet moves that caused a beta cutoff at a ply, newest first. Sibling
-// positions tend to be refuted by the same move.
-using Killers = std::array<Move, 2>;
-
-// How often each quiet move (by side to move, from and to square) caused a beta cutoff, weighted
-// by depth and decreased when it failed to.
-class History {
-public:
-    [[nodiscard]] int get(Color us, Move move) const { return table_[us][move.from()][move.to()]; }
-
-    // Adds `bonus` (negative for a penalty), scaled down as the entry nears kMaxHistory so that
-    // entries stay bounded and recent results outweigh old ones.
-    void update(Color us, Move move, int bonus) {
-        int& entry = table_[us][move.from()][move.to()];
-        const int clamped = std::clamp(bonus, -kMaxHistory, kMaxHistory);
-        entry += clamped - (entry * std::abs(clamped) / kMaxHistory);
-    }
-
-private:
-    std::array<std::array<std::array<int, kSquareCount>, kSquareCount>, kColorCount> table_{};
-};
-
-class MovePicker {
-public:
-    // Orders the hash/PV move first, then captures that do not lose material by static exchange
-    // evaluation, by MVV-LVA (most valuable victim, least valuable attacker), and queen
-    // promotions, then the killer moves, then the other quiet moves by history score, then the
-    // losing captures by MVV-LVA, and underpromotions last. With `tactical_only`, only captures and
-    // queen promotions are returned.
-    void reset(const Position& pos, const MoveList& moves, Move hash_move, const Killers& killers,
-               const History* history, bool tactical_only = false) {
-        size_ = 0;
-        current_ = 0;
-        for (const Move move : moves) {
-            if (tactical_only && !is_tactical(pos, move)) {
-                continue;
-            }
-            moves_[size_] = move;
-            see_[size_] = SeeResult::Unknown;
-            scores_[size_] = score(pos, move, hash_move, killers, history, see_[size_]);
-            ++size_;
-        }
-    }
-
-    // The highest-scored move not returned yet, or nullopt when all have been.
-    std::optional<Move> next() {
-        if (current_ == size_) {
-            return std::nullopt;
-        }
-        std::size_t best = current_;
-        for (std::size_t i = current_ + 1; i < size_; ++i) {
-            if (scores_[i] > scores_[best]) {
-                best = i;
-            }
-        }
-        std::swap(moves_[current_], moves_[best]);
-        std::swap(scores_[current_], scores_[best]);
-        std::swap(see_[current_], see_[best]);
-        return moves_[current_++];
-    }
-
-    // see_ge(pos, move, 0) for the move next() returned last, reusing the result from scoring it
-    // when there is one.
-    [[nodiscard]] bool last_see_ge_zero(const Position& pos) {
-        SeeResult& see = see_[current_ - 1];
-        if (see == SeeResult::Unknown) {
-            see = see_ge(pos, moves_[current_ - 1], 0) ? SeeResult::Good : SeeResult::Bad;
-        }
-        return see == SeeResult::Good;
-    }
-
-private:
-    enum class SeeResult : std::uint8_t { Unknown, Good, Bad };
-
-    static int score(const Position& pos, Move move, Move hash_move, const Killers& killers,
-                     const History* history, SeeResult& see) {
-        constexpr int kHashBonus = 1'000'000;
-        constexpr int kTacticalBonus = 100'000;
-        constexpr int kFirstKillerBonus = 90'000;
-        constexpr int kSecondKillerBonus = 80'000;
-        constexpr int kLosingCaptureScore = -kTacticalBonus;
-        constexpr int kUnderpromotionScore = -2 * kTacticalBonus;
-        if (move == hash_move) {
-            return kHashBonus;
-        }
-        // Promoting to anything but a queen rarely helps, so it is tried after every quiet move.
-        if (move.type() == MoveType::Promotion && move.promotion() != Queen) {
-            return kUnderpromotionScore;
-        }
-        int value = 0;
-        if (is_capture(pos, move)) {
-            const PieceType victim =
-                move.type() == MoveType::EnPassant ? Pawn : type_of(pos.piece_on(move.to()));
-            const PieceType attacker = type_of(pos.piece_on(move.from()));
-            const int mvv_lva = (piece_value(victim) * 8) - static_cast<int>(attacker);
-            // A capture that loses material is tried after the quiet moves.
-            see = see_ge(pos, move, 0) ? SeeResult::Good : SeeResult::Bad;
-            if (see == SeeResult::Bad) {
-                return kLosingCaptureScore + mvv_lva;
-            }
-            value += kTacticalBonus + mvv_lva;
-        }
-        if (move.type() == MoveType::Promotion) {
-            value += kTacticalBonus + piece_value(Queen);
-        }
-        if (value != 0) {
-            return value;
-        }
-        if (move == killers[0]) {
-            return kFirstKillerBonus;
-        }
-        if (move == killers[1]) {
-            return kSecondKillerBonus;
-        }
-        return history != nullptr ? history->get(pos.side_to_move(), move) : 0;
-    }
-
-    std::array<Move, MoveList::kCapacity> moves_{};
-    std::array<int, MoveList::kCapacity> scores_{};
-    std::array<SeeResult, MoveList::kCapacity> see_{};
-    std::size_t size_ = 0;
-    std::size_t current_ = 0;
-};
 
 class Searcher {
 public:
@@ -460,6 +322,8 @@ private:
             beta < kMateBound && has_non_pawn_material(pos_, pos_.side_to_move()) &&
             static_eval >= beta) {
             const int reduction = 3 + (depth / 4);
+            data.continuation = nullptr;
+            data.moved_piece = NoPiece;
             pos_.make_null_move();
             const Score score =
                 -negamax(depth - 1 - reduction, -beta, -beta + 1, ply + 1, false, true);
@@ -479,14 +343,28 @@ private:
         if (ply + 2 <= kLastPly) {
             killers_[ply + 2] = {};
         }
+        const ContinuationHistories continuation = continuation_histories(ply);
+        const Move counter_move =
+            ply > 0 && stack_[ply - 1].moved_piece != NoPiece
+                ? counter_moves_.get(stack_[ply - 1].moved_piece, stack_[ply - 1].to)
+                : Move::null();
         MovePicker& picker = data.picker;
-        picker.reset(pos_, moves, pv_move.is_null() ? tt_move : pv_move, killers_[ply], &history_);
+        picker.reset(pos_, moves,
+                     {.hash_move = pv_move.is_null() ? tt_move : pv_move,
+                      .killers = killers_[ply],
+                      .counter_move = counter_move,
+                      .butterfly = &butterfly_history_,
+                      .continuation = continuation,
+                      .captures = &capture_history_});
         const Score original_alpha = alpha;
         Score best = -kInfiniteScore;
         Move best_move = Move::null();
         // Quiet moves searched before the current one, penalized when another move cuts off.
         MoveList& quiets_tried = data.quiets_tried;
         quiets_tried.clear();
+        // Likewise for captures, by capture history.
+        MoveList& captures_tried = data.captures_tried;
+        captures_tried.clear();
         int moves_searched = 0;
         // Quiet moves are pruned below only in non-PV nodes out of check, and only once a move
         // was searched without being mated, so no node is left without a move and no defense
@@ -497,6 +375,7 @@ private:
                             static_eval + kFutilityBase + (kFutilityMarginPerPly * depth) <= alpha;
         while (const auto move = picker.next()) {
             const bool quiet = is_quiet(pos_, *move);
+            const bool capture = is_capture(pos_, *move);
             const bool killer = *move == killers_[ply][0] || *move == killers_[ply][1];
             const bool child_on_pv = on_pv && *move == pv_move;
             if (can_prune_quiets && quiet && moves_searched > 0 && best > -kMateBound) {
@@ -511,6 +390,12 @@ private:
                     continue;
                 }
             }
+            const Piece moved_piece = pos_.piece_on(move->from());
+            const int history =
+                quiet ? quiet_history(pos_, *move, butterfly_history_, continuation) : 0;
+            data.moved_piece = moved_piece;
+            data.to = move->to();
+            data.continuation = &continuation_history_.entry(moved_piece, move->to());
             pos_.make_move(*move);
             const bool gives_check = pos_.in_check();
             Score score = 0;
@@ -531,6 +416,8 @@ private:
                     if (pv_node) {
                         --reduction;
                     }
+                    // Moves that often refuted similar positions are reduced less.
+                    reduction -= history / kLmrHistoryDivisor;
                     reduction = std::clamp(reduction, 0, depth - 2);
                     if (reduction > 0) {
                         score = -negamax(depth - 1 - reduction, -alpha - 1, -alpha, ply + 1, false,
@@ -563,15 +450,16 @@ private:
                                       .pv_length = pv_length_[0]};
                     }
                     if (alpha >= beta) {
-                        if (quiet) {
-                            update_quiet_stats(*move, quiets_tried, depth, ply);
-                        }
+                        update_cutoff_stats(*move, quiet, capture, quiets_tried, captures_tried,
+                                            depth, ply);
                         break;
                     }
                 }
             }
             if (quiet) {
                 quiets_tried.push_back(*move);
+            } else if (capture) {
+                captures_tried.push_back(*move);
             }
         }
 
@@ -623,7 +511,7 @@ private:
         MovePicker& picker = data.picker;
         // Out of check only captures and queen promotions are searched; the rest are not even
         // scored.
-        picker.reset(pos_, data.moves, Move::null(), {}, nullptr, !in_check);
+        picker.reset(pos_, data.moves, {.captures = &capture_history_}, !in_check);
         while (const auto move = picker.next()) {
             // A capture that loses material by static exchange evaluation is not worth resolving:
             // standing pat already scores better than it would.
@@ -650,21 +538,56 @@ private:
         return best;
     }
 
-    // Rewards the quiet move that caused a beta cutoff and penalizes the quiet moves searched
-    // before it in vain.
-    void update_quiet_stats(Move cutoff_move, const MoveList& quiets_tried, int depth,
-                            std::size_t ply) {
-        Killers& killers = killers_[ply];
-        if (killers[0] != cutoff_move) {
-            killers[1] = killers[0];
-            killers[0] = cutoff_move;
+    // The continuation histories of the moves one and two plies before a node at `ply`.
+    [[nodiscard]] ContinuationHistories continuation_histories(std::size_t ply) const {
+        ContinuationHistories histories{};
+        for (std::size_t back = 1; back <= kContinuationPlies && back <= ply; ++back) {
+            histories[back - 1] = stack_[ply - back].continuation;
         }
-        const Color us = pos_.side_to_move();
+        return histories;
+    }
+
+    // Rewards the move that caused a beta cutoff and penalizes the moves of its kind searched
+    // before it in vain. Quiet moves also update the killers, the counter move and the
+    // continuation histories; any cutoff penalizes the captures tried before it.
+    void update_cutoff_stats(Move cutoff_move, bool quiet, bool capture,
+                             const MoveList& quiets_tried, const MoveList& captures_tried,
+                             int depth, std::size_t ply) {
         const int bonus = depth * depth;
-        history_.update(us, cutoff_move, bonus);
-        for (const Move move : quiets_tried) {
-            history_.update(us, move, -bonus);
+        if (quiet) {
+            Killers& killers = killers_[ply];
+            if (killers[0] != cutoff_move) {
+                killers[1] = killers[0];
+                killers[0] = cutoff_move;
+            }
+            if (ply > 0 && stack_[ply - 1].moved_piece != NoPiece) {
+                counter_moves_.set(stack_[ply - 1].moved_piece, stack_[ply - 1].to, cutoff_move);
+            }
+            update_quiet_history(cutoff_move, bonus, ply);
+            for (const Move move : quiets_tried) {
+                update_quiet_history(move, -bonus, ply);
+            }
+        } else if (capture) {
+            update_capture_history(cutoff_move, bonus);
         }
+        for (const Move move : captures_tried) {
+            update_capture_history(move, -bonus);
+        }
+    }
+
+    void update_quiet_history(Move move, int bonus, std::size_t ply) {
+        const Piece piece = pos_.piece_on(move.from());
+        butterfly_history_.update(pos_.side_to_move(), move, bonus);
+        for (std::size_t back = 1; back <= kContinuationPlies && back <= ply; ++back) {
+            if (PieceToHistory* history = stack_[ply - back].continuation; history != nullptr) {
+                history->update(piece, move.to(), bonus);
+            }
+        }
+    }
+
+    void update_capture_history(Move move, int bonus) {
+        capture_history_.update(pos_.piece_on(move.from()), move.to(), captured_type(pos_, move),
+                                bonus);
     }
 
     void update_pv(std::size_t ply, Move move) {
@@ -768,15 +691,25 @@ private:
     std::size_t previous_pv_length_ = 0;
 
     std::array<Killers, kMaxPly + 1> killers_{};
-    History history_;
+    CounterMoves counter_moves_;
+    ButterflyHistory butterfly_history_;
+    ContinuationHistory continuation_history_;
+    CaptureHistory capture_history_;
 
     // The move lists of the node being searched at each ply. A node's lists are only used while
     // it is on the search path, and only one node per ply is, so they live here rather than in
     // the recursive functions' stack frames, keeping the search thread's stack small.
+    // Each also records the move made from its node, which the nodes below order their moves by:
+    // the moved piece and target square (NoPiece after a null move), and the continuation history
+    // of answers to it (null after a null move).
     struct PlyData {
         MoveList moves;
         MoveList quiets_tried;
+        MoveList captures_tried;
         MovePicker picker;
+        Piece moved_piece = NoPiece;
+        Square to = A1;
+        PieceToHistory* continuation = nullptr;
     };
     std::array<PlyData, kMaxPly + 1> stack_{};
 };

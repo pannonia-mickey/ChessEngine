@@ -18,8 +18,20 @@ The test stops as soon as the log-likelihood ratio (LLR) crosses one of the boun
 
 - Python 3.9 or newer (the script uses only the standard library).
 - CMake and a C++23 compiler, as for a normal build. Ninja is used when installed.
-- A match runner on `PATH`:
-  - [fastchess](https://github.com/Disservin/fastchess) (preferred): `git clone https://github.com/Disservin/fastchess && make -C fastchess -j`, then put the `fastchess` binary on `PATH` or pass `--runner-path`.
+- A match runner:
+  - [fastchess](https://github.com/Disservin/fastchess) (preferred). The CMake build can fetch and
+    build it (release v1.8.2-alpha, set by `CHESS_FASTCHESS_TAG`; needs `make` and network access
+    at build time):
+
+    ```sh
+    cmake --preset release -DCHESS_BUILD_FASTCHESS=ON
+    cmake --build --preset release --target fastchess
+    ```
+
+    The binary lands in `build/<preset>/tools/fastchess/bin/fastchess`, where the script finds it
+    when no `fastchess` is on `PATH`. A fastchess built by hand
+    (`git clone https://github.com/Disservin/fastchess && make -C fastchess -j`) works too: put it
+    on `PATH` or pass `--runner-path`.
   - [cutechess-cli](https://github.com/cutechess/cutechess) also works (`--runner cutechess`), but its SPRT uses logistic Elo, so its bounds are not comparable with fastchess's default normalized Elo.
 
 ## Running a test
