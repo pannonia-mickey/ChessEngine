@@ -21,8 +21,8 @@ SPRT (see [sprt.md](sprt.md)). Ideas tried and rejected are recorded in
 | 11 | Lazy SMP (multiple threads) | +50–100 on several cores | large | `src/search.cpp`, `src/tt.*`, `src/uci.cpp` |
 | 12 | NNUE evaluation | +150–300 | very large | new module and training pipeline |
 
-Items 5 and 6 are implemented and passed SPRT (+16.2 ± 8.1 and +51.8 ± 14.8 Elo; see their
-sections below).
+Items 5 and 6 are implemented and passed SPRT (+16.2 ± 8.1 and +51.8 ± 14.8 Elo), and so did
+the first part of item 9 (+26.6 ± 10.9 Elo); see their sections below.
 
 Check extensions were ranked first but lost Elo in both forms tested (#20); see
 [experiments.md](experiments.md#check-extensions-20-closed).
@@ -135,7 +135,18 @@ material without pawns).
 
 **Status:** partly implemented: a tempo bonus, threats by minor pieces and by rooks, safe checks
 per piece type and knight and bishop outposts, tuned on the zurichess set (error 0.06158 →
-0.05942). Bench 48013 → 41871. SPRT pending. Still open: a non-linear king attack score and endgame
+0.05942). Bench 48013 → 41871. SPRT against the transposition table commit 71da732 (bench
+48013), STC 8+0.08, gainer bounds [0, 5]:
+
+```text
+Elo: 26.61 +/- 10.90, nElo: 35.61 +/- 14.52
+LOS: 100.00 %, DrawRatio: 37.49 %, PairsRatio: 1.44
+Games: 2198, Wins: 802, Losses: 634, Draws: 762, Points: 1183.0 (53.82 %)
+Ptnml(0-2): [71, 211, 412, 289, 116], WL/DD Ratio: 2.15
+LLR: 2.98 (101.1%) (-2.94, 2.94) [0.00, 5.00]
+SPRT ([0.00, 5.00]) completed - H1 was accepted
+```
+ Still open: a non-linear king attack score and endgame
 scaling, which the linear Texel tuner cannot fit as they are; they need a tuner extension or hand
 tuning with SPSA.
 
