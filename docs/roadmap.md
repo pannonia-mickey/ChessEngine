@@ -21,7 +21,7 @@ SPRT (see [sprt.md](sprt.md)). Ideas tried and rejected are recorded in
 | 11 | Lazy SMP (multiple threads) | +50–100 on several cores | large | `src/search.cpp`, `src/tt.*`, `src/uci.cpp` |
 | 12 | NNUE evaluation | +150–300 | very large | new module and training pipeline |
 
-Item 5 is implemented (see its section below) and awaits an SPRT result.
+Item 5 is implemented and passed SPRT (+16.2 ± 8.1 Elo; see its section below).
 
 Check extensions were ranked first but lost Elo in both forms tested (#20); see
 [experiments.md](experiments.md#check-extensions-20-closed).
@@ -68,7 +68,19 @@ Then adjust the LMR amount by the history score (less reduction for well-scored 
 
 **Status:** implemented. `MovePicker` and the tables moved to `src/movepick.*` and
 `src/history.hpp`; the LMR amount shrinks by one ply per 8192 of combined quiet history. Bench
-58516 → 60229. Not yet SPRT-tested.
+58516 → 60229.
+
+SPRT against `main` at 86583b5 (bench 58516), STC 8+0.08, gainer bounds [0, 5], fastchess with
+`UHO_Lichess_4852_v1.epd`, concurrency 3:
+
+```text
+Elo: 16.24 +/- 8.11, nElo: 23.20 +/- 11.56
+LOS: 100.00 %, DrawRatio: 39.16 %, PairsRatio: 1.28
+Games: 3468, Wins: 1099, Losses: 937, Draws: 1432, Points: 1815.0 (52.34 %)
+Ptnml(0-2): [94, 368, 679, 468, 125], WL/DD Ratio: 1.28
+LLR: 2.95 (100.3%) (-2.94, 2.94) [0.00, 5.00]
+SPRT ([0.00, 5.00]) completed - H1 was accepted
+```
 
 ### 6. Transposition table
 
