@@ -120,6 +120,12 @@ a tempo bonus, threats by minor and major pieces (only pawn threats exist), safe
 non-linear king attack score, outposts, and endgame scaling (opposite-colored bishops, little
 material without pawns).
 
+**Status:** partly implemented: a tempo bonus, threats by minor pieces and by rooks, safe checks
+per piece type and knight and bishop outposts, tuned on the zurichess set (error 0.06158 →
+0.05942). Bench 48013 → 41871. SPRT pending. Still open: a non-linear king attack score and endgame
+scaling, which the linear Texel tuner cannot fit as they are; they need a tuner extension or hand
+tuning with SPSA.
+
 ### 10. Singular extensions
 
 Extend the table move when a reduced search excluding it fails low by a margin. Needs an excluded
