@@ -116,6 +116,16 @@ inline constexpr std::array<PhaseScore, kParamCount> kParamValues = {{
     { -47,  -2},
     // King on semi-open file
     { -16,   7},
+    // Tempo
+    {   0,   0},
+    // Threat by minor
+    {   0,   0}, {   0,   0}, {   0,   0}, {   0,   0},
+    // Threat by rook
+    {   0,   0}, {   0,   0}, {   0,   0}, {   0,   0},
+    // Safe check
+    {   0,   0}, {   0,   0}, {   0,   0}, {   0,   0},
+    // Outpost
+    {   0,   0}, {   0,   0},
 }};
 // clang-format on
 

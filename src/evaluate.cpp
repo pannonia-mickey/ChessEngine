@@ -95,6 +95,8 @@ public:
     Score run() {
         for (const Color color : {White, Black}) {
             pawn_attacks_[color] = pawn_attacks_bb(color, pos_.pieces(color, Pawn));
+            attacked_by_[color][Pawn] = pawn_attacks_[color];
+            attacked_by_[color][King] = king_attacks(pos_.king_square(color));
         }
         material_and_psqt();
         for (const Color color : {White, Black}) {
@@ -102,6 +104,11 @@ public:
             pieces(color);
             king(color);
         }
+        // These need the attacks of both sides, which pieces() collects.
+        for (const Color color : {White, Black}) {
+            threats(color);
+        }
+        add(pos_.side_to_move(), eval::kTempo);
         const int phase = game_phase(pos_);
         if constexpr (Trace) {
             trace_.phase = phase;
@@ -204,7 +211,11 @@ private:
             while (remaining != 0) {
                 const Square square = pop_lsb(remaining);
                 const Bitboard attacks = attacks_of(type, square, occupied);
+                attacked_by_[us][type] |= attacks;
                 add(us, kMobility[type] + popcount(attacks & mobility_area));
+                if ((type == Knight || type == Bishop) && is_outpost(us, square)) {
+                    add(us, eval::kOutpost + type - Knight);
+                }
                 if (const Bitboard zone_attacks = attacks & king_zone; zone_attacks != 0) {
                     ++attackers;
                     add(us, eval::kKingZoneAttack + type - Knight, popcount(zone_attacks));
@@ -229,6 +240,49 @@ private:
         }
     }
 
+    // Whether a minor piece of `us` on `square` stands on an outpost: on our fourth to sixth rank,
+    // defended by a pawn of ours, and on no square an enemy pawn can ever attack.
+    [[nodiscard]] bool is_outpost(Color us, Square square) const {
+        const int rank = relative_rank(us, square);
+        return rank >= 3 && rank <= 5 && has(pawn_attacks_[us], square) &&
+               (forward_ranks(us, square) & adjacent_files(file_of(square)) &
+                pos_.pieces(~us, Pawn)) == 0;
+    }
+
+    // Attacks of our pieces on enemy pieces, and the safe squares we could check the enemy king
+    // from.
+    void threats(Color us) {
+        const Color them = ~us;
+        const Bitboard minors = attacked_by_[us][Knight] | attacked_by_[us][Bishop];
+        for (const PieceType type : {Knight, Bishop, Rook, Queen}) {
+            const Bitboard targets = pos_.pieces(them, type);
+            if (const int count = popcount(minors & targets); count != 0) {
+                add(us, eval::kThreatByMinor + type - Knight, count);
+            }
+            if (const int count = popcount(attacked_by_[us][Rook] & targets); count != 0) {
+                add(us, eval::kThreatByRook + type - Knight, count);
+            }
+        }
+
+        Bitboard enemy_attacks = 0;
+        for (const Bitboard attacks : attacked_by_[them]) {
+            enemy_attacks |= attacks;
+        }
+        const Bitboard safe = ~pos_.pieces(us) & ~enemy_attacks;
+        const Square king = pos_.king_square(them);
+        const Bitboard occupied = pos_.pieces();
+        const Bitboard bishop_checks = bishop_attacks(king, occupied);
+        const Bitboard rook_checks = rook_attacks(king, occupied);
+        const std::array<Bitboard, 4> checks = {knight_attacks(king), bishop_checks, rook_checks,
+                                                bishop_checks | rook_checks};
+        for (const PieceType type : {Knight, Bishop, Rook, Queen}) {
+            const Bitboard squares = attacked_by_[us][type] & checks[type - Knight] & safe;
+            if (const int count = popcount(squares); count != 0) {
+                add(us, eval::kSafeCheck + type - Knight, count);
+            }
+        }
+    }
+
     void king(Color us) {
         const Square king = pos_.king_square(us);
         const Bitboard ours = pos_.pieces(us, Pawn);
@@ -248,6 +302,8 @@ private:
 
     const Position& pos_;
     std::array<Bitboard, kColorCount> pawn_attacks_{};
+    // The squares each side attacks, by attacking piece type.
+    std::array<std::array<Bitboard, kPieceTypeCount>, kColorCount> attacked_by_{};
     Score mg_ = 0;
     Score eg_ = 0;
     [[no_unique_address]] std::conditional_t<Trace, EvalTrace, NoTrace> trace_{};

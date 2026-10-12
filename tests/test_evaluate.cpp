@@ -53,9 +53,9 @@ std::string mirror_fen(std::string_view fen) {
 
 }  // namespace
 
-TEST_CASE("the starting position evaluates to zero", "[evaluate]") {
+TEST_CASE("the starting position evaluates to the tempo bonus", "[evaluate]") {
     const Position pos;
-    CHECK(evaluate(pos) == 0);
+    CHECK(evaluate(pos) == eval::kParamValues.at(eval::kTempo).mg);
     CHECK(game_phase(pos) == kMaxPhase);
 }
 
@@ -74,11 +74,13 @@ TEST_CASE("evaluation is symmetric under color mirroring", "[evaluate]") {
 }
 
 TEST_CASE("evaluation is from the side to move's point of view", "[evaluate]") {
-    // White is a queen up.
-    const Position white_to_move = test::position_from("4k3/8/8/8/8/8/8/3QK3 w - - 0 1");
-    const Position black_to_move = test::position_from("4k3/8/8/8/8/8/8/3QK3 b - - 0 1");
-    CHECK(evaluate(white_to_move) > 800);
-    CHECK(evaluate(black_to_move) == -evaluate(white_to_move));
+    // White is four pawns up. Without pieces the endgame values apply unblended, so the two
+    // sides' scores differ by exactly the tempo bonus each side gets on the move.
+    const Position white_to_move = test::position_from("4k3/8/8/8/8/8/PPPP4/4K3 w - - 0 1");
+    const Position black_to_move = test::position_from("4k3/8/8/8/8/8/PPPP4/4K3 b - - 0 1");
+    CHECK(evaluate(white_to_move) > 200);
+    CHECK(evaluate(white_to_move) + evaluate(black_to_move) ==
+          2 * eval::kParamValues.at(eval::kTempo).eg);
 }
 
 TEST_CASE("game phase counts minor and major pieces", "[evaluate]") {
@@ -156,4 +158,27 @@ TEST_CASE("piece and king terms", "[evaluate]") {
     CHECK(coefficient(castled, eval::kPawnShield) == 3);
     CHECK(coefficient(castled, eval::kKingZoneAttack + 3) == -2);
     CHECK(coefficient(castled, eval::kKingAttackers + 1) == -1);
+}
+
+TEST_CASE("tempo, threat, safe check and outpost terms", "[evaluate]") {
+    CHECK(coefficient("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", eval::kTempo) ==
+          1);
+    CHECK(coefficient("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1", eval::kTempo) ==
+          -1);
+
+    // The knight attacks the rook.
+    CHECK(coefficient("4k3/8/8/3r4/8/2N5/8/4K3 w - - 0 1", eval::kThreatByMinor + Rook - Knight) ==
+          1);
+    // The rook attacks the queen, which attacks it back.
+    const auto* const rook_queen = "4k3/8/8/8/8/8/8/R2q3K w - - 0 1";
+    CHECK(coefficient(rook_queen, eval::kThreatByRook + Queen - Knight) == 1);
+
+    // The rook can check from a8 and e1, and nothing guards either square.
+    CHECK(coefficient("4k3/8/8/8/8/8/8/R6K w - - 0 1", eval::kSafeCheck + Rook - Knight) == 2);
+    // The black rook on b8 blocks the eighth rank, so only e1 is left.
+    CHECK(coefficient("1r2k3/8/8/8/8/8/8/R6K w - - 0 1", eval::kSafeCheck + Rook - Knight) == 1);
+
+    // A knight on e5 defended by the d4 pawn; a black pawn on f7 could still drive it away.
+    CHECK(coefficient("4k3/8/8/4N3/3P4/8/8/4K3 w - - 0 1", eval::kOutpost) == 1);
+    CHECK(coefficient("4k3/5p2/8/4N3/3P4/8/8/4K3 w - - 0 1", eval::kOutpost) == 0);
 }
