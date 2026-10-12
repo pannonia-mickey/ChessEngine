@@ -90,6 +90,13 @@ SPRT ([0.00, 5.00]) completed - H1 was accepted
 - One entry per index: three or four entries per cache line, replaced by depth and age, lose fewer
   useful entries in long searches.
 
+**Status:** implemented. Quiescence search probes the table (cutoffs outside PV nodes only),
+orders by its move and stores its results at depth 0; a depth-0 result never replaces a deeper one
+of the current search. Each 16-byte entry stores the static evaluation, which `negamax` and
+quiescence reuse and refine with the table's score where the bound allows (never with mate
+scores). Buckets of four entries fill a 64-byte cache line; a new position replaces an empty entry
+or the one with the lowest `depth - 8 * age`. Bench 60229 → 48013. SPRT pending.
+
 ### 7. Time management
 
 `plan_time` is static (`available / 30 + increment * 3 / 4`). Scale the soft limit down when the
