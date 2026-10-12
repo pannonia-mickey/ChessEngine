@@ -21,7 +21,8 @@ SPRT (see [sprt.md](sprt.md)). Ideas tried and rejected are recorded in
 | 11 | Lazy SMP (multiple threads) | +50–100 on several cores | large | `src/search.cpp`, `src/tt.*`, `src/uci.cpp` |
 | 12 | NNUE evaluation | +150–300 | very large | new module and training pipeline |
 
-Item 5 is implemented and passed SPRT (+16.2 ± 8.1 Elo; see its section below).
+Items 5 and 6 are implemented and passed SPRT (+16.2 ± 8.1 and +51.8 ± 14.8 Elo), and so did
+the first part of item 9 (+26.6 ± 10.9 Elo); see their sections below.
 
 Check extensions were ranked first but lost Elo in both forms tested (#20); see
 [experiments.md](experiments.md#check-extensions-20-closed).
@@ -90,6 +91,25 @@ SPRT ([0.00, 5.00]) completed - H1 was accepted
 - One entry per index: three or four entries per cache line, replaced by depth and age, lose fewer
   useful entries in long searches.
 
+**Status:** implemented. Quiescence search probes the table (cutoffs outside PV nodes only),
+orders by its move and stores its results at depth 0; a depth-0 result never replaces a deeper one
+of the current search. Each 16-byte entry stores the static evaluation, which `negamax` and
+quiescence reuse and refine with the table's score where the bound allows (never with mate
+scores). Buckets of four entries fill a 64-byte cache line; a new position replaces an empty entry
+or the one with the lowest `depth - 8 * age`. Bench 60229 → 48013.
+
+SPRT against `main` at 6dbd879 (bench 60229), STC 8+0.08, gainer bounds [0, 5], fastchess with
+`UHO_Lichess_4852_v1.epd`, concurrency 3:
+
+```text
+Elo: 51.77 +/- 14.82, nElo: 74.61 +/- 21.03
+LOS: 100.00 %, DrawRatio: 38.17 %, PairsRatio: 2.15
+Games: 1048, Wins: 393, Losses: 238, Draws: 417, Points: 601.5 (57.40 %)
+Ptnml(0-2): [18, 85, 200, 166, 55], WL/DD Ratio: 1.41
+LLR: 2.97 (100.8%) (-2.94, 2.94) [0.00, 5.00]
+SPRT ([0.00, 5.00]) completed - H1 was accepted
+```
+
 ### 7. Time management
 
 `plan_time` is static (`available / 30 + increment * 3 / 4`). Scale the soft limit down when the
@@ -112,6 +132,23 @@ New terms are cheap to add and tune (see [tuning.md](tuning.md)). Missing terms 
 a tempo bonus, threats by minor and major pieces (only pawn threats exist), safe checks and a
 non-linear king attack score, outposts, and endgame scaling (opposite-colored bishops, little
 material without pawns).
+
+**Status:** partly implemented: a tempo bonus, threats by minor pieces and by rooks, safe checks
+per piece type and knight and bishop outposts, tuned on the zurichess set (error 0.06158 →
+0.05942). Bench 48013 → 41871. SPRT against the transposition table commit 71da732 (bench
+48013), STC 8+0.08, gainer bounds [0, 5]:
+
+```text
+Elo: 26.61 +/- 10.90, nElo: 35.61 +/- 14.52
+LOS: 100.00 %, DrawRatio: 37.49 %, PairsRatio: 1.44
+Games: 2198, Wins: 802, Losses: 634, Draws: 762, Points: 1183.0 (53.82 %)
+Ptnml(0-2): [71, 211, 412, 289, 116], WL/DD Ratio: 2.15
+LLR: 2.98 (101.1%) (-2.94, 2.94) [0.00, 5.00]
+SPRT ([0.00, 5.00]) completed - H1 was accepted
+```
+ Still open: a non-linear king attack score and endgame
+scaling, which the linear Texel tuner cannot fit as they are; they need a tuner extension or hand
+tuning with SPSA.
 
 ### 10. Singular extensions
 

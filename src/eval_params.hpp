@@ -58,7 +58,19 @@ inline constexpr int kKingAttackers = kKingZoneAttack + 4;
 inline constexpr int kPawnShield = kKingAttackers + 4;
 inline constexpr int kKingOpenFile = kPawnShield + 2;
 inline constexpr int kKingSemiOpenFile = kKingOpenFile + 1;
-inline constexpr int kParamCount = kKingSemiOpenFile + 1;
+// A bonus for the side to move.
+inline constexpr int kTempo = kKingSemiOpenFile + 1;
+// Attacks of our knights and bishops, and of our rooks, on enemy pieces, indexed by the attacked
+// piece type (knight to queen).
+inline constexpr int kThreatByMinor = kTempo + 1;
+inline constexpr int kThreatByRook = kThreatByMinor + 4;
+// Squares from which a piece of ours could give check, that it attacks, and that no enemy piece
+// attacks and none of ours occupies, per piece type (knight to queen).
+inline constexpr int kSafeCheck = kThreatByRook + 4;
+// A knight or bishop on our fourth to sixth rank, defended by a pawn of ours, and out of reach
+// of the enemy pawns, indexed by piece type (knight, bishop).
+inline constexpr int kOutpost = kSafeCheck + 4;
+inline constexpr int kParamCount = kOutpost + 2;
 
 // A named group of parameters, for printing them.
 struct ParamGroup {
@@ -67,7 +79,7 @@ struct ParamGroup {
     int size = 0;
 };
 
-inline constexpr std::array<ParamGroup, 29> kParamGroups = {{
+inline constexpr std::array<ParamGroup, 34> kParamGroups = {{
     {.name = "Material", .offset = kMaterial, .size = 6},
     {.name = "Pawn PSQT", .offset = kPsqt, .size = 64},
     {.name = "Knight PSQT", .offset = kPsqt + 64, .size = 64},
@@ -97,6 +109,11 @@ inline constexpr std::array<ParamGroup, 29> kParamGroups = {{
     {.name = "Pawn shield", .offset = kPawnShield, .size = 2},
     {.name = "King on open file", .offset = kKingOpenFile, .size = 1},
     {.name = "King on semi-open file", .offset = kKingSemiOpenFile, .size = 1},
+    {.name = "Tempo", .offset = kTempo, .size = 1},
+    {.name = "Threat by minor", .offset = kThreatByMinor, .size = 4},
+    {.name = "Threat by rook", .offset = kThreatByRook, .size = 4},
+    {.name = "Safe check", .offset = kSafeCheck, .size = 4},
+    {.name = "Outpost", .offset = kOutpost, .size = 2},
 }};
 static_assert(kParamGroups.back().offset + kParamGroups.back().size == kParamCount);
 

@@ -137,8 +137,9 @@ TEST_CASE("an interrupted iteration still plays the better root move it found", 
         int max_depth;
     };
     const auto cases = {
-        // Changes its mind at depth 4, before aspiration windows are used.
-        Case{.fen = "4k3/8/4n3/2p5/1Q1P4/8/8/4K3 w - - 0 1", .max_depth = 6},
+        // Changes its mind at depth 2, before aspiration windows are used.
+        Case{.fen = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+             .max_depth = 6},
         // Changes its mind at depth 7, inside an aspiration window.
         Case{.fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
              .max_depth = 8},

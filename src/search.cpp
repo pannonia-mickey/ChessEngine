@@ -277,9 +277,9 @@ private:
         }
 
         const Key key = pos_.key();
-        Move tt_move = Move::null();
-        if (const auto entry = tt_.probe(key)) {
-            tt_move = entry->move;
+        const std::optional<TtEntry> entry = tt_.probe(key);
+        const Move tt_move = entry.has_value() ? entry->move : Move::null();
+        if (entry.has_value()) {
             // PV nodes always search, so the root knows a best move and the principal variation
             // is not cut short. A position the 50-move rule may already have drawn is searched
             // too, since the entry cannot know about the rule.
@@ -303,8 +303,11 @@ private:
         if (ply > 0 && pos_.halfmove_clock() >= 100) {
             return kDrawScore;
         }
-        // Computed once and shared by the pruning decisions below; meaningless in check.
-        const Score static_eval = in_check ? -kInfiniteScore : evaluate(pos_);
+        // Computed once and shared by the pruning decisions below; meaningless in check. The
+        // table's evaluation saves computing it again, and the table's score bounds the true
+        // value more tightly where its bound allows.
+        const Score raw_eval = in_check ? kNoEval : stored_or_new_eval(entry);
+        const Score static_eval = in_check ? -kInfiniteScore : refined_eval(raw_eval, entry, ply);
 
         // Reverse futility pruning: a position whose static evaluation beats beta by a margin
         // that grows with the remaining depth is unlikely to drop below beta in a shallow search,
@@ -469,7 +472,7 @@ private:
         } else if (best > original_alpha) {
             bound = Bound::Exact;
         }
-        tt_.store(key, best_move, score_to_tt(best, ply), depth, bound);
+        tt_.store(key, best_move, score_to_tt(best, ply), raw_eval, depth, bound);
         return best;
     }
 
@@ -492,11 +495,28 @@ private:
             generate_legal_moves(pos_, stack_[ply].moves);
             return in_check && stack_[ply].moves.empty() ? mated_score(ply) : kDrawScore;
         }
+
+        // Every stored result is at least as deep as quiescence search, so outside PV nodes any
+        // that is bounded the right way ends the node; PV nodes search on, so the PV is complete.
+        const Key key = pos_.key();
+        const std::optional<TtEntry> entry = tt_.probe(key);
+        if (entry.has_value() && beta - alpha == 1) {
+            const Score score = score_from_tt(entry->score, ply);
+            if (entry->bound == Bound::Exact || (entry->bound == Bound::Lower && score >= beta) ||
+                (entry->bound == Bound::Upper && score <= alpha)) {
+                return score;
+            }
+        }
+
+        const Score original_alpha = alpha;
+        const Score raw_eval = in_check ? kNoEval : stored_or_new_eval(entry);
         Score best = -kInfiniteScore;
+        Move best_move = Move::null();
         if (!in_check) {
             // Standing pat: the side to move can usually do at least as well as doing nothing.
-            best = evaluate(pos_);
+            best = refined_eval(raw_eval, entry, ply);
             if (best >= beta) {
+                tt_.store(key, Move::null(), score_to_tt(best, ply), raw_eval, 0, Bound::Lower);
                 return best;
             }
             alpha = std::max(alpha, best);
@@ -511,7 +531,10 @@ private:
         MovePicker& picker = data.picker;
         // Out of check only captures and queen promotions are searched; the rest are not even
         // scored.
-        picker.reset(pos_, data.moves, {.captures = &capture_history_}, !in_check);
+        picker.reset(pos_, data.moves,
+                     {.hash_move = entry.has_value() ? entry->move : Move::null(),
+                      .captures = &capture_history_},
+                     !in_check);
         while (const auto move = picker.next()) {
             // A capture that loses material by static exchange evaluation is not worth resolving:
             // standing pat already scores better than it would.
@@ -528,6 +551,7 @@ private:
                 best = score;
                 if (score > alpha) {
                     alpha = score;
+                    best_move = *move;
                     update_pv(ply, *move);
                     if (alpha >= beta) {
                         break;
@@ -535,6 +559,14 @@ private:
                 }
             }
         }
+
+        Bound bound = Bound::Upper;
+        if (best >= beta) {
+            bound = Bound::Lower;
+        } else if (best > original_alpha) {
+            bound = Bound::Exact;
+        }
+        tt_.store(key, best_move, score_to_tt(best, ply), raw_eval, 0, bound);
         return best;
     }
 
@@ -545,6 +577,28 @@ private:
             histories[back - 1] = stack_[ply - back].continuation;
         }
         return histories;
+    }
+
+    // The static evaluation stored with `entry`, or a new one.
+    Score stored_or_new_eval(const std::optional<TtEntry>& entry) {
+        return entry.has_value() && entry->eval != kNoEval ? entry->eval : evaluate(pos_);
+    }
+
+    // The static evaluation `eval`, replaced by the table's score for the position when the
+    // score's bound shows the true value lies beyond the evaluation in its direction. Mate scores
+    // are not used: the pruning margins built on the evaluation do not apply to them.
+    static Score refined_eval(Score eval, const std::optional<TtEntry>& entry, std::size_t ply) {
+        if (!entry.has_value()) {
+            return eval;
+        }
+        const Score score = score_from_tt(entry->score, ply);
+        if (is_mate_score(score)) {
+            return eval;
+        }
+        const bool tighter = entry->bound == Bound::Exact ||
+                             (entry->bound == Bound::Lower && score > eval) ||
+                             (entry->bound == Bound::Upper && score < eval);
+        return tighter ? score : eval;
     }
 
     // Rewards the move that caused a beta cutoff and penalizes the moves of its kind searched

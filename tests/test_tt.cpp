@@ -27,7 +27,7 @@ TEST_CASE("the table returns what was stored and nothing for unknown keys", "[tt
     constexpr Key kKey = 0x1234'5678'9ABC'DEF0ULL;
     CHECK_FALSE(tt.probe(kKey).has_value());
 
-    tt.store(kKey, kE2E4, -42, 7, Bound::Lower);
+    tt.store(kKey, kE2E4, -42, 0, 7, Bound::Lower);
     const TtEntry entry = probe(tt, kKey);
     CHECK(entry.move == kE2E4);
     CHECK(entry.score == -42);
@@ -45,23 +45,66 @@ TEST_CASE("the table keeps deeper results of the current search", "[tt]") {
     TranspositionTable tt(1);
     constexpr Key kKey = 42;
     tt.new_search();
-    tt.store(kKey, kE2E4, 10, 8, Bound::Lower);
+    tt.store(kKey, kE2E4, 10, 0, 8, Bound::Lower);
 
     // A shallower bound does not replace it, but an exact score does.
-    tt.store(kKey, kD2D4, 20, 3, Bound::Upper);
+    tt.store(kKey, kD2D4, 20, 0, 3, Bound::Upper);
     CHECK(probe(tt, kKey).depth == 8);
-    tt.store(kKey, kD2D4, 30, 3, Bound::Exact);
+    tt.store(kKey, kD2D4, 30, 0, 3, Bound::Exact);
     CHECK(probe(tt, kKey).score == 30);
 
     // A fail-low store without a move keeps the known best move.
-    tt.store(kKey, Move::null(), 5, 4, Bound::Upper);
+    tt.store(kKey, Move::null(), 5, 0, 4, Bound::Upper);
     CHECK(probe(tt, kKey).move == kD2D4);
 
     // Results of an earlier search are always replaced.
-    tt.store(kKey, kE2E4, 10, 9, Bound::Lower);
+    tt.store(kKey, kE2E4, 10, 0, 9, Bound::Lower);
     tt.new_search();
-    tt.store(kKey, kD2D4, 0, 1, Bound::Upper);
+    tt.store(kKey, kD2D4, 0, 0, 1, Bound::Upper);
     CHECK(probe(tt, kKey).depth == 1);
+}
+
+TEST_CASE("the table keeps the static evaluation and no evaluation", "[tt]") {
+    TranspositionTable tt(1);
+    tt.store(1, kE2E4, 10, -123, 3, Bound::Upper);
+    tt.store(2, kE2E4, 10, kNoEval, 3, Bound::Upper);
+    CHECK(probe(tt, 1).eval == -123);
+    CHECK(probe(tt, 2).eval == kNoEval);
+}
+
+TEST_CASE("positions sharing a bucket are all kept until the bucket is full", "[tt]") {
+    TranspositionTable tt(1);
+    // Keys differing only above the index bits select the same bucket.
+    const auto key = [](std::uint64_t n) { return Key{(n + 1) << 40U}; };
+    for (std::uint64_t n = 0; n < TranspositionTable::kBucketSize; ++n) {
+        tt.store(key(n), kE2E4, static_cast<Score>(n), 0, static_cast<int>(n) + 1, Bound::Lower);
+    }
+    for (std::uint64_t n = 0; n < TranspositionTable::kBucketSize; ++n) {
+        CHECK(probe(tt, key(n)).score == static_cast<Score>(n));
+    }
+
+    // A new position replaces the shallowest entry.
+    tt.store(key(100), kD2D4, 7, 0, 5, Bound::Exact);
+    CHECK(probe(tt, key(100)).score == 7);
+    CHECK_FALSE(tt.probe(key(0)).has_value());
+    CHECK(tt.probe(key(1)).has_value());
+
+    // After a new search, the older entries count as shallower than they are.
+    tt.new_search();
+    tt.store(key(101), kD2D4, 8, 0, 1, Bound::Exact);
+    CHECK(probe(tt, key(101)).score == 8);
+    CHECK(probe(tt, key(100)).score == 7);
+    CHECK(probe(tt, key(TranspositionTable::kBucketSize - 1)).depth ==
+          static_cast<int>(TranspositionTable::kBucketSize));
+}
+
+TEST_CASE("a quiescence result does not replace a deeper one of the current search", "[tt]") {
+    TranspositionTable tt(1);
+    constexpr Key kKey = 7;
+    tt.new_search();
+    tt.store(kKey, kE2E4, 10, 0, 6, Bound::Lower);
+    tt.store(kKey, kD2D4, 20, 0, 0, Bound::Exact);
+    CHECK(probe(tt, kKey).depth == 6);
 }
 
 TEST_CASE("the table size is a power of two that fits the requested memory", "[tt]") {
